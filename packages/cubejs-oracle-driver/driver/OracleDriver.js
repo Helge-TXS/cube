@@ -79,7 +79,7 @@ class OracleDriver extends BaseDriver {
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP ||
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_LTZ ||
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_TZ)
-        return {converter: (v) => v.toLocaleString() };
+        return {converter: (v) => v.toISOString() };
     };
 
     this.config = {
