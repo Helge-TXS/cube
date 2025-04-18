@@ -71,6 +71,17 @@ class OracleDriver extends BaseDriver {
     this.db.partRows = 100000;
     this.db.maxRows = 100000;
     this.db.prefetchRows = 500;
+    
+    // Convert the fetched timestamp data to reflect
+    // the locale time settings of the client
+    this.db.fetchTypeHandler = function(metadata) {
+      if (metadata.dbType === oracledb.DB_TYPE_DATE ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_LTZ ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_TZ)
+        return {converter: (v) => v.toLocaleString() };
+    };
+
     this.config = {
       user: getEnv('dbUser', { dataSource }),
       password: getEnv('dbPass', { dataSource }),
