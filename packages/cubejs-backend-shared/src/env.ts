@@ -144,6 +144,10 @@ const variables: Record<string, (...args: any) => any> = {
   webSockets: () => get('CUBEJS_WEB_SOCKETS')
     .default('false')
     .asBoolStrict(),
+  serverHeadersTimeout: () => get('CUBEJS_SERVER_HEADERS_TIMEOUT')
+    .asInt(),
+  serverKeepAliveTimeout: () => get('CUBEJS_SERVER_KEEP_ALIVE_TIMEOUT')
+    .asInt(),
   rollupOnlyMode: () => get('CUBEJS_ROLLUP_ONLY')
     .default('false')
     .asBoolStrict(),
@@ -336,6 +340,33 @@ const variables: Record<string, (...args: any) => any> = {
       keyByDataSource('CUBEJS_DB_HOST', dataSource)
     ]
   ),
+
+  /**
+   * Use `SELECT 1` query for testConnection.
+   * It might be used in any driver where there is a specific testConnection
+   * like a REST call, but for some reason it's not possible to use it in
+   * deployment environment.
+   */
+  dbUseSelectTestConnection: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => {
+    const val = process.env[
+      keyByDataSource('CUBEJS_DB_USE_SELECT_TEST_CONNECTION', dataSource)
+    ] || 'false';
+    if (val.toLocaleLowerCase() === 'true') {
+      return true;
+    } else if (val.toLowerCase() === 'false') {
+      return false;
+    } else {
+      throw new TypeError(
+        `The ${
+          keyByDataSource('CUBEJS_DB_USE_SELECT_TEST_CONNECTION', dataSource)
+        } must be either 'true' or 'false'.`
+      );
+    }
+  },
 
   /**
    * Kafka host for direct downloads from ksqlDb
@@ -952,24 +983,9 @@ const variables: Record<string, (...args: any) => any> = {
    ***************************************************************** */
 
   /**
-   * Accept Databricks policy flag. This environment variable doesn't
-   * need to be split by the data source.
-   * TODO: Tech-debt: Remove totally someday
-   */
-  databrickAcceptPolicy: () => {
-    const val = get('CUBEJS_DB_DATABRICKS_ACCEPT_POLICY').asBoolStrict();
-
-    if (val !== undefined) {
-      console.warn(
-        'The CUBEJS_DB_DATABRICKS_ACCEPT_POLICY is not needed anymore. Please, remove it'
-      );
-    }
-  },
-
-  /**
    * Databricks jdbc-connection url.
    */
-  databrickUrl: ({
+  databricksUrl: ({
     dataSource,
   }: {
     dataSource: string,
@@ -990,7 +1006,7 @@ const variables: Record<string, (...args: any) => any> = {
   /**
    * Databricks jdbc-connection token.
    */
-  databrickToken: ({
+  databricksToken: ({
     dataSource,
   }: {
     dataSource: string,
@@ -1011,6 +1027,32 @@ const variables: Record<string, (...args: any) => any> = {
   }) => process.env[
     keyByDataSource('CUBEJS_DB_DATABRICKS_CATALOG', dataSource)
   ],
+
+  /**
+   * Databricks OAuth Client ID (Same as the service principal UUID)
+   */
+  databricksOAuthClientId: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_DB_DATABRICKS_OAUTH_CLIENT_ID', dataSource)
+    ]
+  ),
+
+  /**
+   * Databricks OAuth Client Secret.
+   */
+  databricksOAuthClientSecret: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_DB_DATABRICKS_OAUTH_CLIENT_SECRET', dataSource)
+    ]
+  ),
 
   /** ****************************************************************
    * Athena Driver                                                   *
@@ -1773,6 +1815,7 @@ const variables: Record<string, (...args: any) => any> = {
     }
     return [];
   },
+
   duckdbCommunityExtensions: ({
     dataSource
   }: {
@@ -1786,8 +1829,38 @@ const variables: Record<string, (...args: any) => any> = {
     }
     return [];
   },
+
+  duckdbS3UseCredentialChain: ({
+    dataSource
+  }: {
+    dataSource: string,
+  }) => {
+    const val = process.env[
+      keyByDataSource('CUBEJS_DB_DUCKDB_S3_USE_CREDENTIAL_CHAIN', dataSource)
+    ];
+
+    if (val) {
+      if (val.toLocaleLowerCase() === 'true') {
+        return true;
+      } else if (val.toLowerCase() === 'false') {
+        return false;
+      } else {
+        throw new TypeError(
+          `The ${
+            keyByDataSource(
+              'CUBEJS_DB_DUCKDB_S3_USE_CREDENTIAL_CHAIN',
+              dataSource,
+            )
+          } must be either 'true' or 'false'.`
+        );
+      }
+    } else {
+      return false;
+    }
+  },
+
   /** ***************************************************************
-   * Presto Driver                                                  *
+   * Presto/Trino Driver                                                  *
    **************************************************************** */
 
   /**
@@ -1803,12 +1876,25 @@ const variables: Record<string, (...args: any) => any> = {
     ]
   ),
 
+  /**
+   * Presto/Trino Auth Token
+   */
+  prestoAuthToken: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_DB_PRESTO_AUTH_TOKEN', dataSource)
+    ]
+  ),
+
   /** ***************************************************************
    * Pinot Driver                                                  *
    **************************************************************** */
 
   /**
-   * Pinot / Startree Auth Token
+   * Pinot/Startree Auth Token
    */
   pinotAuthToken: ({
     dataSource,

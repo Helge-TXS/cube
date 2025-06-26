@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { prepareCompiler, prepareJsCompiler } from './PrepareCompiler';
+import { prepareCompiler, prepareJsCompiler, prepareYamlCompiler } from './PrepareCompiler';
 import { createCubeSchema, createCubeSchemaWithCustomGranularitiesAndTimeShift, createCubeSchemaWithAccessPolicy } from './utils';
 
-const CUBE_COMPONENTS = ['dimensions', 'measures', 'segments', 'hierarchies', 'preAggregations', 'accessPolicy'];
+const CUBE_COMPONENTS = ['dimensions', 'measures', 'segments', 'hierarchies', 'preAggregations', 'joins'];
 
 describe('Schema Testing', () => {
   const schemaCompile = async () => {
@@ -532,6 +532,22 @@ describe('Schema Testing', () => {
       expect(measures.count_shifted_year).toMatchSnapshot();
     });
 
+    it('views extends views', async () => {
+      const modelContent = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/folders.yml'),
+        'utf8'
+      );
+      const { compiler, metaTransformer } = prepareYamlCompiler(modelContent);
+      await compiler.compile();
+
+      const testView3 = metaTransformer.cubeEvaluator.evaluatedCubes.test_view3;
+      expect(testView3.dimensions).toMatchSnapshot();
+      expect(testView3.measures).toMatchSnapshot();
+      expect(testView3.measures).toMatchSnapshot();
+      expect(testView3.hierarchies).toMatchSnapshot();
+      expect(testView3.folders).toMatchSnapshot();
+    });
+
     it('throws errors for incorrect referenced includes members', async () => {
       const orders = fs.readFileSync(
         path.join(process.cwd(), '/test/unit/fixtures/orders.js'),
@@ -685,6 +701,64 @@ describe('Schema Testing', () => {
         expect(e.toString()).toMatch(/Included member 'id' conflicts with existing member of 'orders_view'\. Please consider excluding this member or assigning it an alias/);
       }
     });
+
+    it('allows to override `title`, `description`, `meta`, and `format` on includes members', async () => {
+      const orders = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/orders.js'),
+        'utf8'
+      );
+      const ordersView = `
+        views:
+          - name: orders_view
+            cubes:
+              - join_path: orders
+                includes:
+                - name: status
+                  alias: my_beloved_status
+                  title: My Favorite and not Beloved Status!
+                  description: Don't you believe this?
+                  meta:
+                    - whose: mine
+                    - what: status
+
+                - name: created_at
+                  alias: my_beloved_created_at
+                  title: My Favorite and not Beloved created_at!
+                  description: Created at this point in time
+                  meta:
+                    - c1: iddqd
+                    - c2: idkfa
+
+                - name: count
+                  title: My Overridden Count!
+                  description: It's not possible!
+                  format: percent
+                  meta:
+                    - whose: bread
+                    - what: butter
+                    - why: cheese
+
+                - name: hello
+                  title: My Overridden hierarchy!
+      `;
+
+      const { compiler, cubeEvaluator } = prepareCompiler([
+        {
+          content: orders,
+          fileName: 'orders.js',
+        },
+        {
+          content: ordersView,
+          fileName: 'order_view.yml',
+        },
+      ]);
+
+      await compiler.compile();
+      compiler.throwIfAnyErrors();
+
+      const cubeB = cubeEvaluator.cubeFromPath('orders_view');
+      expect(cubeB).toMatchSnapshot();
+    });
   });
 
   describe('Inheritance', () => {
@@ -722,6 +796,10 @@ describe('Schema Testing', () => {
       CUBE_COMPONENTS.forEach(c => {
         expect(cubeA[c]).toEqual(cubeB[c]);
       });
+
+      // accessPolicies are evaluated so they must ref cube's own members and not parent's ones.
+      expect(cubeA.accessPolicy).toMatchSnapshot('accessPolicy');
+      expect(cubeB.accessPolicy).toMatchSnapshot('accessPolicy');
     });
 
     it('CubeB.js correctly extends cubeA.js (with additions)', async () => {
@@ -731,6 +809,10 @@ describe('Schema Testing', () => {
       );
       const orderUsers = fs.readFileSync(
         path.join(process.cwd(), '/test/unit/fixtures/order_users.yml'),
+        'utf8'
+      );
+      const orderLineItems = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/line_items.yml'),
         'utf8'
       );
       const ordersExt = fs.readFileSync(
@@ -751,6 +833,10 @@ describe('Schema Testing', () => {
           content: orderUsers,
           fileName: 'order_users.yml',
         },
+        {
+          content: orderLineItems,
+          fileName: 'line_items.yml',
+        },
       ]);
       await compiler.compile();
       compiler.throwIfAnyErrors();
@@ -759,8 +845,8 @@ describe('Schema Testing', () => {
       const cubeB = cubeEvaluator.cubeFromPath('ordersExt');
 
       CUBE_COMPONENTS.forEach(c => {
-        expect(cubeA[c]).toMatchSnapshot();
-        expect(cubeB[c]).toMatchSnapshot();
+        expect(cubeA[c]).toMatchSnapshot(c);
+        expect(cubeB[c]).toMatchSnapshot(c);
       });
     });
 
@@ -802,6 +888,10 @@ describe('Schema Testing', () => {
       CUBE_COMPONENTS.forEach(c => {
         expect(cubeA[c]).toEqual(cubeB[c]);
       });
+
+      // accessPolicies are evaluated so they must ref cube's own members and not parent's ones.
+      expect(cubeA.accessPolicy).toMatchSnapshot('accessPolicy');
+      expect(cubeB.accessPolicy).toMatchSnapshot('accessPolicy');
     });
 
     it('CubeB.yml correctly extends cubeA.yml (with additions)', async () => {
@@ -811,6 +901,10 @@ describe('Schema Testing', () => {
       );
       const orderUsers = fs.readFileSync(
         path.join(process.cwd(), '/test/unit/fixtures/order_users.yml'),
+        'utf8'
+      );
+      const orderLineItems = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/line_items.yml'),
         'utf8'
       );
       const ordersExt = fs.readFileSync(
@@ -831,6 +925,10 @@ describe('Schema Testing', () => {
           content: orderUsers,
           fileName: 'order_users.yml',
         },
+        {
+          content: orderLineItems,
+          fileName: 'line_items.yml',
+        },
       ]);
       await compiler.compile();
       compiler.throwIfAnyErrors();
@@ -839,8 +937,8 @@ describe('Schema Testing', () => {
       const cubeB = cubeEvaluator.cubeFromPath('ordersExt');
 
       CUBE_COMPONENTS.forEach(c => {
-        expect(cubeA[c]).toMatchSnapshot();
-        expect(cubeB[c]).toMatchSnapshot();
+        expect(cubeA[c]).toMatchSnapshot(c);
+        expect(cubeB[c]).toMatchSnapshot(c);
       });
     });
 
@@ -882,6 +980,10 @@ describe('Schema Testing', () => {
       CUBE_COMPONENTS.forEach(c => {
         expect(cubeA[c]).toEqual(cubeB[c]);
       });
+
+      // accessPolicies are evaluated so they must ref cube's own members and not parent's ones.
+      expect(cubeA.accessPolicy).toMatchSnapshot('accessPolicy');
+      expect(cubeB.accessPolicy).toMatchSnapshot('accessPolicy');
     });
 
     it('CubeB.yml correctly extends cubeA.js (with additions)', async () => {
@@ -891,6 +993,10 @@ describe('Schema Testing', () => {
       );
       const orderUsers = fs.readFileSync(
         path.join(process.cwd(), '/test/unit/fixtures/order_users.yml'),
+        'utf8'
+      );
+      const orderLineItems = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/line_items.yml'),
         'utf8'
       );
       const ordersExt = fs.readFileSync(
@@ -911,6 +1017,10 @@ describe('Schema Testing', () => {
           content: orderUsers,
           fileName: 'order_users.yml',
         },
+        {
+          content: orderLineItems,
+          fileName: 'line_items.yml',
+        },
       ]);
       await compiler.compile();
       compiler.throwIfAnyErrors();
@@ -919,8 +1029,8 @@ describe('Schema Testing', () => {
       const cubeB = cubeEvaluator.cubeFromPath('ordersExt');
 
       CUBE_COMPONENTS.forEach(c => {
-        expect(cubeA[c]).toMatchSnapshot();
-        expect(cubeB[c]).toMatchSnapshot();
+        expect(cubeA[c]).toMatchSnapshot(c);
+        expect(cubeB[c]).toMatchSnapshot(c);
       });
     });
 
@@ -958,6 +1068,10 @@ describe('Schema Testing', () => {
       CUBE_COMPONENTS.forEach(c => {
         expect(cubeA[c]).toEqual(cubeB[c]);
       });
+
+      // accessPolicies are evaluated so they must ref cube's own members and not parent's ones.
+      expect(cubeA.accessPolicy).toMatchSnapshot('accessPolicy');
+      expect(cubeB.accessPolicy).toMatchSnapshot('accessPolicy');
     });
 
     it('CubeB.js correctly extends cubeA.yml (with additions)', async () => {
@@ -967,6 +1081,10 @@ describe('Schema Testing', () => {
       );
       const orderUsers = fs.readFileSync(
         path.join(process.cwd(), '/test/unit/fixtures/order_users.yml'),
+        'utf8'
+      );
+      const orderLineItems = fs.readFileSync(
+        path.join(process.cwd(), '/test/unit/fixtures/line_items.yml'),
         'utf8'
       );
       const ordersExt = fs.readFileSync(
@@ -987,6 +1105,10 @@ describe('Schema Testing', () => {
           content: orderUsers,
           fileName: 'order_users.yml',
         },
+        {
+          content: orderLineItems,
+          fileName: 'line_items.yml',
+        },
       ]);
       await compiler.compile();
       compiler.throwIfAnyErrors();
@@ -995,8 +1117,8 @@ describe('Schema Testing', () => {
       const cubeB = cubeEvaluator.cubeFromPath('ordersExt');
 
       CUBE_COMPONENTS.forEach(c => {
-        expect(cubeA[c]).toMatchSnapshot();
-        expect(cubeB[c]).toMatchSnapshot();
+        expect(cubeA[c]).toMatchSnapshot(c);
+        expect(cubeB[c]).toMatchSnapshot(c);
       });
     });
 
