@@ -1,111 +1,77 @@
 /* eslint-disable no-restricted-syntax */
 import R from 'ramda';
 
-import { CubeSymbols, type ToString } from './CubeSymbols';
+import {
+  CubeDefinitionExtended,
+  CubeSymbols,
+  HierarchyDefinition, JoinDefinition,
+  PreAggregationDefinition, PreAggregationDefinitionRollup,
+  type ToString
+} from './CubeSymbols';
 import { UserError } from './UserError';
-import { BaseQuery } from '../adapter';
+import { BaseQuery, PreAggregationDefinitionExtended } from '../adapter';
 import type { CubeValidator } from './CubeValidator';
 import type { ErrorReporter } from './ErrorReporter';
 
 export type SegmentDefinition = {
-  type: string,
-  sql: Function,
-  primaryKey?: true,
-  ownedByCube: boolean,
-  fieldType?: string,
+  type: string;
+  sql(): string;
+  primaryKey?: true;
+  ownedByCube: boolean;
+  fieldType?: string;
   // TODO should we have it here?
-  multiStage?: boolean,
+  multiStage?: boolean;
 };
 
 export type DimensionDefinition = {
-  type: string,
-  sql: Function,
-  primaryKey?: true,
-  ownedByCube: boolean,
-  fieldType?: string,
-  multiStage?: boolean,
-  shiftInterval?: string,
+  type: string;
+  sql(): string;
+  primaryKey?: true;
+  ownedByCube: boolean;
+  fieldType?: string;
+  multiStage?: boolean;
+  shiftInterval?: string;
 };
 
 export type TimeShiftDefinition = {
-  timeDimension?: (...args: Array<unknown>) => ToString,
-  interval: string,
-  type: 'next' | 'prior',
+  timeDimension?: (...args: Array<unknown>) => ToString;
+  name?: string;
+  interval?: string;
+  type?: 'next' | 'prior';
 };
 
 export type TimeShiftDefinitionReference = {
-  timeDimension?: string,
-  interval: string,
-  type: 'next' | 'prior',
+  timeDimension?: string;
+  name?: string;
+  interval?: string;
+  type?: 'next' | 'prior';
 };
 
 export type MeasureDefinition = {
-  type: string,
-  sql: Function,
-  ownedByCube: boolean,
+  type: string;
+  sql(): string;
+  ownedByCube: boolean;
   rollingWindow?: any
   filters?: any
-  primaryKey?: true,
-  drillFilters?: any,
-  multiStage?: boolean,
-  groupBy?: (...args: Array<unknown>) => Array<ToString>,
-  reduceBy?: (...args: Array<unknown>) => Array<ToString>,
-  addGroupBy?: (...args: Array<unknown>) => Array<ToString>,
-  timeShift?: TimeShiftDefinition[],
-  groupByReferences?: string[],
-  reduceByReferences?: string[],
-  addGroupByReferences?: string[],
-  timeShiftReferences?: TimeShiftDefinitionReference[],
-  patchedFrom?: { cubeName: string, name: string },
+  primaryKey?: true;
+  drillFilters?: any;
+  multiStage?: boolean;
+  groupBy?: (...args: Array<unknown>) => Array<ToString>;
+  reduceBy?: (...args: Array<unknown>) => Array<ToString>;
+  addGroupBy?: (...args: Array<unknown>) => Array<ToString>;
+  timeShift?: TimeShiftDefinition[];
+  groupByReferences?: string[];
+  reduceByReferences?: string[];
+  addGroupByReferences?: string[];
+  timeShiftReferences?: TimeShiftDefinitionReference[];
+  patchedFrom?: { cubeName: string; name: string };
 };
 
 export type PreAggregationFilters = {
-  dataSources?: string[],
-  cubes?: string[],
-  preAggregationIds?: string[],
-  scheduled?: boolean,
-};
-
-export type EveryInterval = string;
-type EveryCronInterval = string;
-type EveryCronTimeZone = string;
-
-export type CubeRefreshKeySqlVariant = {
-  sql: () => string;
-  every?: EveryInterval;
-};
-
-export type CubeRefreshKeyEveryVariant = {
-  every: EveryInterval | EveryCronInterval;
-  timezone?: EveryCronTimeZone;
-  incremental?: boolean;
-  updateWindow?: EveryInterval;
-};
-
-export type CubeRefreshKeyImmutableVariant = {
-  immutable: true;
-};
-
-export type CubeRefreshKey =
-  | CubeRefreshKeySqlVariant
-  | CubeRefreshKeyEveryVariant
-  | CubeRefreshKeyImmutableVariant;
-
-export type PreAggregationDefinition = {
-  type: 'autoRollup' | 'originalSql' | 'rollupJoin' | 'rollupLambda' | 'rollup',
-  allowNonStrictDateRangeMatch?: boolean,
-  useOriginalSqlPreAggregations?: boolean,
-  timeDimensionReference?: () => ToString,
-  granularity: string,
-  timeDimensionReferences: Array<{ dimension: () => ToString, granularity: string }>,
-  dimensionReferences: () => Array<ToString>,
-  segmentReferences: () => Array<ToString>,
-  measureReferences: () => Array<ToString>,
-  rollupReferences: () => Array<ToString>,
-  indexes?: Record<string, any>,
-  refreshKey?: CubeRefreshKey,
-  scheduledRefresh: boolean,
-  external: boolean,
+  dataSources?: string[];
+  cubes?: string[];
+  preAggregationIds?: string[];
+  scheduled?: boolean;
 };
 
 export type PreAggregationDefinitions = Record<string, PreAggregationDefinition>;
@@ -135,12 +101,67 @@ export type PreAggregationInfo = {
   indexesReferences: unknown,
 };
 
+export type EvaluatedHierarchy = {
+  name: string;
+  title?: string;
+  public?: boolean;
+  levels: string[];
+  aliasMember?: string;
+  [key: string]: any;
+};
+
+export type Filter =
+  | {
+      member: string;
+      memberReference?: string;
+      [key: string]: any;
+    }
+  | {
+      and?: Filter[];
+      or?: Filter[];
+      [key: string]: any;
+    };
+
+export type AccessPolicy = {
+  rowLevel?: {
+    filters: Filter[];
+  };
+  memberLevel?: {
+    includes?: string | string[];
+    excludes?: string | string[];
+    includesMembers?: string[];
+    excludesMembers?: string[];
+  };
+};
+
+export type EvaluatedFolder = {
+  name: string;
+  includes: (EvaluatedFolder | DimensionDefinition | MeasureDefinition)[];
+  type: 'folder';
+  [key: string]: any;
+};
+
+export type EvaluatedCube = {
+  measures: Record<string, MeasureDefinition>;
+  dimensions: Record<string, DimensionDefinition>;
+  segments: Record<string, SegmentDefinition>;
+  joins: Record<string, JoinDefinition>;
+  hierarchies: Record<string, HierarchyDefinition>;
+  evaluatedHierarchies: EvaluatedHierarchy[];
+  preAggregations: Record<string, PreAggregationDefinitionExtended>;
+  dataSource?: string;
+  folders: EvaluatedFolder[];
+  sql?: (...args: any[]) => string;
+  sqlTable?: (...args: any[]) => string;
+  accessPolicy?: AccessPolicy[];
+};
+
 export class CubeEvaluator extends CubeSymbols {
-  public evaluatedCubes: Record<string, any> = {};
+  public evaluatedCubes: Record<string, EvaluatedCube> = {};
 
-  public primaryKeys: Record<string, any> = {};
+  public primaryKeys: Record<string, string[]> = {};
 
-  public byFileName: Record<string, any> = {};
+  public byFileName: Record<string, CubeDefinitionExtended[]> = {};
 
   private isRbacEnabledCache: boolean | null = null;
 
@@ -166,7 +187,7 @@ export class CubeEvaluator extends CubeSymbols {
       this.evaluatedCubes[cube.name] = this.prepareCube(cube, errorReporter);
     }
 
-    this.byFileName = R.groupBy(v => v.fileName, validCubes);
+    this.byFileName = R.groupBy(v => v.fileName || v.name, validCubes);
     this.primaryKeys = R.fromPairs(
       validCubes.map((v) => {
         const primaryKeyNamesToSymbols = R.compose(
@@ -259,34 +280,51 @@ export class CubeEvaluator extends CubeSymbols {
 
   private prepareFolders(cube: any, errorReporter: ErrorReporter) {
     const folders = cube.rawFolders();
-    if (folders.length) {
-      cube.folders = folders.map(it => {
-        const includedMembers = this.allMembersOrList(cube, it.includes);
-        const includes = includedMembers.map(memberName => {
-          if (memberName.includes('.')) {
-            errorReporter.error(
-              `Paths aren't allowed in the 'folders' but '${memberName}' has been provided for ${cube.name}`
-            );
+    if (!folders.length) return;
+
+    const checkMember = (memberName: string, folderName: string) => {
+      if (memberName.includes('.')) {
+        errorReporter.error(
+          `Paths aren't allowed in the 'folders' but '${memberName}' has been provided for ${cube.name}`
+        );
+      }
+
+      const member = cube.includedMembers.find(m => m.name === memberName);
+      if (!member) {
+        errorReporter.error(
+          `Member '${memberName}' included in folder '${folderName}' not found`
+        );
+        return null;
+      }
+
+      return member;
+    };
+
+    const processFolder = (folder: any): any => {
+      let includedMembers: string[];
+      let includes: any[] = [];
+
+      if (folder.includes === '*') {
+        includedMembers = this.allMembersOrList(cube, folder.includes);
+        includes = includedMembers.map(m => checkMember(m, folder.name)).filter(Boolean);
+      } else if (Array.isArray(folder.includes)) {
+        includes = folder.includes.map(item => {
+          if (typeof item === 'object' && item !== null) {
+            return processFolder(item);
           }
 
-          const member = cube.includedMembers.find(m => m.name === memberName);
-          if (!member) {
-            errorReporter.error(
-              `Member '${memberName}' included in folder '${it.name}' not found`
-            );
-            return null;
-          }
-
-          return member;
-        })
-          .filter(Boolean);
-
-        return ({
-          ...it,
-          includes
+          return checkMember(item, folder.name);
         });
-      });
-    }
+      }
+
+      return {
+        ...folder,
+        type: 'folder',
+        includes: includes.filter(Boolean)
+      };
+    };
+
+    cube.folders = folders.map(processFolder);
   }
 
   private prepareHierarchies(cube: any, errorReporter: ErrorReporter): void {
@@ -393,6 +431,7 @@ export class CubeEvaluator extends CubeSymbols {
         }
         if (member.timeShift) {
           member.timeShiftReferences = member.timeShift.map((s): TimeShiftDefinitionReference => ({
+            name: s.name,
             interval: s.interval,
             type: s.type,
             ...(typeof s.timeDimension === 'function'
@@ -539,7 +578,7 @@ export class CubeEvaluator extends CubeSymbols {
     return this.byFileName[fileName] || [];
   }
 
-  public timeDimensionPathsForCube(cube: any) {
+  public timeDimensionPathsForCube(cube: string): string[] {
     return R.compose(
       R.map(dimName => `${cube}.${dimName}`),
       R.keys,
@@ -549,18 +588,18 @@ export class CubeEvaluator extends CubeSymbols {
     )(this.evaluatedCubes[cube].dimensions || {});
   }
 
-  public measuresForCube(cube) {
+  public measuresForCube(cube: string): Record<string, MeasureDefinition> {
     return this.cubeFromPath(cube).measures || {};
   }
 
-  public timeDimensionsForCube(cube) {
+  public timeDimensionsForCube(cube: string): Record<string, DimensionDefinition> {
     return R.filter(
       (d: any) => d.type === 'time',
       this.cubeFromPath(cube).dimensions || {}
     );
   }
 
-  public preAggregationsForCube(path: string): Record<string, PreAggregationDefinition> {
+  public preAggregationsForCube(path: string): Record<string, PreAggregationDefinitionExtended> {
     return this.cubeFromPath(path).preAggregations || {};
   }
 
@@ -569,6 +608,22 @@ export class CubeEvaluator extends CubeSymbols {
       name,
       ...(preAggregation as Record<string, any>)
     }));
+  }
+
+  public preAggregationDescriptionByName(cubeName: string, preAggName: string) {
+    const cube = this.cubeFromPath(cubeName);
+    const preAggregations = cube.preAggregations || {};
+
+    const preAgg = preAggregations[preAggName];
+
+    if (!preAgg) {
+      return undefined;
+    }
+
+    return {
+      name: preAggName,
+      ...(preAgg as Record<string, any>)
+    };
   }
 
   /**
@@ -653,22 +708,22 @@ export class CubeEvaluator extends CubeSymbols {
   }
 
   public measureByPath(measurePath: string): MeasureDefinition {
-    return this.byPath('measures', measurePath);
+    return this.byPath('measures', measurePath) as MeasureDefinition;
   }
 
   public dimensionByPath(dimensionPath: string): DimensionDefinition {
-    return this.byPath('dimensions', dimensionPath);
+    return this.byPath('dimensions', dimensionPath) as DimensionDefinition;
   }
 
   public segmentByPath(segmentPath: string): SegmentDefinition {
-    return this.byPath('segments', segmentPath);
+    return this.byPath('segments', segmentPath) as SegmentDefinition;
   }
 
-  public cubeExists(cube) {
+  public cubeExists(cube: string): boolean {
     return !!this.evaluatedCubes[cube];
   }
 
-  public cubeFromPath(path: string) {
+  public cubeFromPath(path: string): EvaluatedCube {
     return this.evaluatedCubes[this.cubeNameFromPath(path)];
   }
 
@@ -702,7 +757,7 @@ export class CubeEvaluator extends CubeSymbols {
     throw new UserError(`Can't resolve member '${Array.isArray(path) ? path.join('.') : path}'`);
   }
 
-  public byPath(type: 'measures' | 'dimensions' | 'segments' | 'preAggregations', path: string | string[]) {
+  public byPath<T extends 'measures' | 'dimensions' | 'segments' | 'preAggregations'>(type: T, path: string | string[]): EvaluatedCube[T][string] {
     if (!type) {
       throw new Error(`Type can't be undefined for '${path}'`);
     }
@@ -712,19 +767,22 @@ export class CubeEvaluator extends CubeSymbols {
     }
 
     const cubeAndName = Array.isArray(path) ? path : path.split('.');
-    if (!this.evaluatedCubes[cubeAndName[0]]) {
+    const cube = this.evaluatedCubes[cubeAndName[0]];
+    if (cube === undefined) {
       throw new UserError(`Cube '${cubeAndName[0]}' not found for path '${path}'`);
     }
 
-    if (!this.evaluatedCubes[cubeAndName[0]][type]) {
+    const typeMembers = cube[type];
+    if (typeMembers === undefined) {
       throw new UserError(`${type} not defined for path '${path}'`);
     }
 
-    if (!this.evaluatedCubes[cubeAndName[0]][type][cubeAndName[1]]) {
+    const member = typeMembers[cubeAndName[1]];
+    if (member === undefined) {
       throw new UserError(`'${cubeAndName[1]}' not found for path '${path}'`);
     }
 
-    return this.evaluatedCubes[cubeAndName[0]][type][cubeAndName[1]];
+    return member as EvaluatedCube[T][string];
   }
 
   public parsePath(type: 'measures' | 'dimensions' | 'segments' | 'preAggregations', path: string): string[] {
@@ -785,7 +843,15 @@ export class CubeEvaluator extends CubeSymbols {
     return { cubeReferencesUsed, pathReferencesUsed, evaluatedSql };
   }
 
-  public evaluatePreAggregationReferences(cube: string, aggregation: PreAggregationDefinition): PreAggregationReferences {
+  /**
+   * Evaluates rollup references for retrieving rollupReference used in Tesseract.
+   * This is a temporary solution until Tesseract takes ownership of all pre-aggregations.
+   */
+  public evaluateRollupReferences<T extends ToString | Array<ToString>>(cube: string, rollupReferences: (...args: Array<unknown>) => T) {
+    return this.evaluateReferences(cube, rollupReferences, { originalSorting: true });
+  }
+
+  public evaluatePreAggregationReferences(cube: string, aggregation: PreAggregationDefinitionRollup): PreAggregationReferences {
     const timeDimensions: Array<PreAggregationTimeDimensionReference> = [];
 
     if (aggregation.timeDimensionReference) {

@@ -925,9 +925,9 @@ async fn test_case_wrapper_with_system_fields() {
             .wrapped_sql
             .sql
             .contains(
-                "\\\"cubeName\\\":\\\"KibanaSampleDataEcommerce\\\",\\\"alias\\\":\\\"user\\\""
+                "\\\"cubeName\\\":\\\"KibanaSampleDataEcommerce\\\",\\\"alias\\\":\\\"__user\\\""
             ),
-        r#"SQL contains `\"cubeName\":\"KibanaSampleDataEcommerce\",\"alias\":\"user\"` {}"#,
+        r#"SQL contains `\"cubeName\":\"KibanaSampleDataEcommerce\",\"alias\":\"__user\"` {}"#,
         logical_plan.find_cube_scan_wrapped_sql().wrapped_sql.sql
     );
 
@@ -1876,7 +1876,7 @@ GROUP BY
                         "replaceAggregationType": null,
                         "addFilters": [{
                             "cubeParams": ["MultiTypeCube"],
-                            "sql": "(((CAST(TRUNC(EXTRACT(YEAR FROM ${MultiTypeCube.dim_date0})) AS INTEGER) = 2024) AND (CAST(TRUNC(EXTRACT(MONTH FROM ${MultiTypeCube.dim_date0})) AS INTEGER) <= 11)) = TRUE)"
+                            "sql": "(((CAST(TRUNC(EXTRACT(year FROM ${MultiTypeCube.dim_date0})) AS INTEGER) = 2024) AND (CAST(TRUNC(EXTRACT(month FROM ${MultiTypeCube.dim_date0})) AS INTEGER) <= 11)) = TRUE)"
                         }],
                     },
                     "groupingSet": null,

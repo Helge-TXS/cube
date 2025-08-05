@@ -131,6 +131,11 @@ export class BaseQuery {
   timeDimensions;
 
   /**
+   * @type {import('../compiler/JoinGraph').FinishedJoinTree}
+   */
+  join;
+
+  /**
    * BaseQuery class constructor.
    * @param {Compilers|*} compilers
    * @param {*} options
@@ -331,11 +336,11 @@ export class BaseQuery {
      */
     this.customSubQueryJoins = this.options.subqueryJoins ?? [];
     this.useNativeSqlPlanner = this.options.useNativeSqlPlanner ?? getEnv('nativeSqlPlanner');
-    this.canUseNativeSqlPlannerPreAggregation = false;
-    if (this.useNativeSqlPlanner && !this.neverUseSqlPlannerPreaggregation()) {
+    this.canUseNativeSqlPlannerPreAggregation = getEnv('nativeSqlPlannerPreAggregations');
+    if (this.useNativeSqlPlanner && !this.canUseNativeSqlPlannerPreAggregation && !this.neverUseSqlPlannerPreaggregation()) {
       const fullAggregateMeasures = this.fullKeyQueryAggregateMeasures({ hasMultipliedForPreAggregation: true });
 
-      this.canUseNativeSqlPlannerPreAggregation = fullAggregateMeasures.multiStageMembers.length > 0 || fullAggregateMeasures.cumulativeMeasures.length > 0;
+      this.canUseNativeSqlPlannerPreAggregation = fullAggregateMeasures.multiStageMembers.length > 0;
     }
     this.queryLevelJoinHints = this.options.joinHints ?? [];
     this.prebuildJoin();
@@ -880,6 +885,7 @@ export class BaseQuery {
       preAggregationQuery: this.options.preAggregationQuery,
       totalQuery: this.options.totalQuery,
       joinHints: this.options.joinHints,
+      cubestoreSupportMultistage: this.options.cubestoreSupportMultistage ?? getEnv('cubeStoreRollingWindowJoin')
     };
 
     const buildResult = nativeBuildSqlAndParams(queryParams);
@@ -929,7 +935,8 @@ export class BaseQuery {
       baseTools: this,
       ungrouped: this.options.ungrouped,
       exportAnnotatedSql: false,
-      preAggregationQuery: this.options.preAggregationQuery
+      preAggregationQuery: this.options.preAggregationQuery,
+      cubestoreSupportMultistage: this.options.cubestoreSupportMultistage ?? getEnv('cubeStoreRollingWindowJoin')
     };
 
     const buildResult = nativeBuildSqlAndParams(queryParams);
@@ -1037,23 +1044,48 @@ export class BaseQuery {
   }
 
   rollingWindowToDateJoinCondition(granularity) {
-    return this.timeDimensions
-      .filter(td => td.granularity)
-      .map(
-        d => [
-          d,
-          (dateFrom, dateTo, dateField, _dimensionDateFrom, _dimensionDateTo, _isFromStartToEnd) => `${dateField} >= ${this.timeGroupedColumn(granularity, dateFrom)} AND ${dateField} <= ${dateTo}`
-        ]
-      );
+    return Object.values(
+      this.timeDimensions.reduce((acc, td) => {
+        const key = td.dimension;
+
+        if (!acc[key]) {
+          acc[key] = td;
+        }
+
+        if (!acc[key].granularity && td.granularity) {
+          acc[key] = td;
+        }
+
+        return acc;
+      }, {})
+    ).map(
+      d => [
+        d,
+        (dateFrom, dateTo, dateField, _dimensionDateFrom, _dimensionDateTo, _isFromStartToEnd) => `${dateField} >= ${this.timeGroupedColumn(granularity, dateFrom)} AND ${dateField} <= ${dateTo}`
+      ]
+    );
   }
 
   rollingWindowDateJoinCondition(trailingInterval, leadingInterval, offset) {
     offset = offset || 'end';
-    return this.timeDimensions
-      .filter(td => td.granularity)
+    return Object.values(
+      this.timeDimensions.reduce((acc, td) => {
+        const key = td.dimension;
+
+        if (!acc[key]) {
+          acc[key] = td;
+        }
+
+        if (!acc[key].granularity && td.granularity) {
+          acc[key] = td;
+        }
+
+        return acc;
+      }, {})
+    )
       .map(
         d => [d, (dateFrom, dateTo, dateField, _dimensionDateFrom, _dimensionDateTo, isFromStartToEnd) => {
-        // dateFrom based window
+          // dateFrom based window
           const conditions = [];
           if (trailingInterval !== 'unbounded') {
             const startDate = isFromStartToEnd || offset === 'start' ? dateFrom : dateTo;
@@ -1090,6 +1122,11 @@ export class BaseQuery {
   addInterval(date, interval) {
     const intervalStr = this.intervalString(interval);
     return `${date} + interval ${intervalStr}`;
+  }
+
+  // For use in Tesseract
+  supportGeneratedSeriesForCustomTd() {
+    return false;
   }
 
   /**
@@ -1963,6 +2000,8 @@ export class BaseQuery {
   }
 
   /**
+   * BigQuery has strict date type and can not automatically convert between date
+   * and timestamp, so we override seriesSql() in BigQuery Dialect
    * @param {import('./BaseTimeDimension').BaseTimeDimension} timeDimension
    * @return {string}
    */
@@ -2021,7 +2060,6 @@ export class BaseQuery {
    * Returns a tuple: (formatted interval, minimal time unit)
    */
   intervalAndMinimalTimeUnit(interval) {
-    const intervalParsed = parseSqlInterval(interval);
     const minGranularity = this.diffTimeUnitForInterval(interval);
     return [interval, minGranularity];
   }
@@ -2100,6 +2138,7 @@ export class BaseQuery {
         const cubeName = m.expressionCubeName ? `\`${m.expressionCubeName}\` ` : '';
         throw new UserError(`The query contains \`COUNT(*)\` expression but cube/view ${cubeName}is missing \`count\` measure`);
       }
+
       if (collectedMeasures.length === 0 && m.isMemberExpression) {
         // `m` is member expression measure, but does not reference any other measure
         // Consider this dimensions-only measure. This can happen at least in 2 cases:
@@ -2110,8 +2149,17 @@ export class BaseQuery {
         // TODO return measure object for every measure
         return this.dimensionOnlyMeasureToHierarchy(context, m);
       }
-      const measureName = typeof m.measure === 'string' ? m.measure : `${m.measure.cubeName}.${m.measure.name}`;
-      return [measureName, collectedMeasures];
+
+      let measureKey;
+      if (typeof m.measure === 'string') {
+        measureKey = m.measure;
+      } else if (m.isMemberExpression) {
+        // TODO expressionName vs definition?
+        measureKey = m.expressionName;
+      } else {
+        measureKey = `${m.measure.cubeName}.${m.measure.name}`;
+      }
+      return [measureKey, collectedMeasures];
     }));
   }
 
@@ -2123,6 +2171,12 @@ export class BaseQuery {
     ));
   }
 
+  /**
+   *
+   * @param {string} cube
+   * @param {boolean} [isLeftJoinCondition]
+   * @returns {[string, string, string?]}
+   */
   rewriteInlineCubeSql(cube, isLeftJoinCondition) {
     const sql = this.cubeSql(cube);
     const cubeAlias = this.cubeAlias(cube);
@@ -2145,9 +2199,14 @@ export class BaseQuery {
     }
   }
 
+  /**
+   * @param {import('../compiler/JoinGraph').FinishedJoinTree} join
+   * @param {Array<string>} subQueryDimensions
+   * @returns {string}
+   */
   joinQuery(join, subQueryDimensions) {
     const subQueryDimensionsByCube = R.groupBy(d => this.cubeEvaluator.cubeNameFromPath(d), subQueryDimensions);
-    const joins = join.joins.map(
+    const joins = join.joins.flatMap(
       j => {
         const [cubeSql, cubeAlias, conditions] = this.rewriteInlineCubeSql(j.originalTo, true);
         return [{
@@ -2157,7 +2216,7 @@ export class BaseQuery {
           // TODO handle the case when sub query referenced by a foreign cube on other side of a join
         }].concat((subQueryDimensionsByCube[j.originalTo] || []).map(d => this.subQueryJoin(d)));
       }
-    ).reduce((a, b) => a.concat(b), []);
+    );
 
     const [cubeSql, cubeAlias] = this.rewriteInlineCubeSql(join.root);
 
@@ -2169,6 +2228,10 @@ export class BaseQuery {
     ]);
   }
 
+  /**
+   * @param {JoinChain} toJoin
+   * @returns {string}
+   */
   joinSql(toJoin) {
     const [root, ...rest] = toJoin;
     const joins = rest.map(
@@ -2230,6 +2293,11 @@ export class BaseQuery {
     return this.filtersWithoutSubQueriesValue;
   }
 
+  /**
+   *
+   * @param {string} dimension
+   * @returns {{ prefix: string, subQuery: this, cubeName: string }}
+   */
   subQueryDescription(dimension) {
     const symbol = this.cubeEvaluator.dimensionByPath(dimension);
     const [cubeName, name] = this.cubeEvaluator.parsePath('dimensions', dimension);
@@ -2274,6 +2342,12 @@ export class BaseQuery {
     return { prefix, subQuery, cubeName };
   }
 
+  /**
+   *
+   * @param {string} cubeName
+   * @param {string} name
+   * @returns {string}
+   */
   subQueryName(cubeName, name) {
     return `${cubeName}_${name}_subquery`;
   }
@@ -2477,6 +2551,9 @@ export class BaseQuery {
     );
   }
 
+  /**
+   * @param {string} cube
+   */
   cubeSql(cube) {
     const foundPreAggregation = this.preAggregations.findPreAggregationToUseForCube(cube);
     if (foundPreAggregation &&
@@ -2587,6 +2664,13 @@ export class BaseQuery {
     ];
   }
 
+  /**
+   * @template T
+   * @param {boolean} excludeTimeDimensions
+   * @param {(t: () => void) => T} fn
+   * @param {string | Array<string>} methodName
+   * @returns {T}
+   */
   collectFromMembers(excludeTimeDimensions, fn, methodName) {
     const membersToCollectFrom = this.allMembersConcat(excludeTimeDimensions)
       .concat(this.join ? this.join.joins.map(j => ({
@@ -2613,6 +2697,14 @@ export class BaseQuery {
       .concat(excludeTimeDimensions ? [] : this.timeDimensions);
   }
 
+  /**
+   * @template T
+   * @param {Array<unknown>} membersToCollectFrom
+   * @param {(t: () => void) => T} fn
+   * @param {string | Array<string>} methodName
+   * @param {unknown} [cache]
+   * @returns {T}
+   */
   collectFrom(membersToCollectFrom, fn, methodName, cache) {
     const methodCacheKey = Array.isArray(methodName) ? methodName : [methodName];
     return R.pipe(
@@ -2634,6 +2726,11 @@ export class BaseQuery {
     );
   }
 
+  /**
+   *
+   * @param {() => void} fn
+   * @returns {Array<string>}
+   */
   collectSubQueryDimensionsFor(fn) {
     const context = { subQueryDimensions: [] };
     this.evaluateSymbolSqlWithContext(
@@ -3196,6 +3293,11 @@ export class BaseQuery {
     return strings.join(' || ');
   }
 
+  /**
+   *
+   * @param {string} cubeName
+   * @returns {Array<string>}
+   */
   primaryKeyNames(cubeName) {
     const primaryKeys = this.cubeEvaluator.primaryKeys[cubeName];
     if (!primaryKeys || !primaryKeys.length) {
@@ -3331,6 +3433,12 @@ export class BaseQuery {
     )(context.leafMeasures);
   }
 
+  /**
+   * @template T
+   * @param {() => T} fn
+   * @param {unknown} context
+   * @returns {T}
+   */
   evaluateSymbolSqlWithContext(fn, context) {
     const oldContext = this.evaluateSymbolContext;
     this.evaluateSymbolContext = oldContext ? Object.assign({}, oldContext, context) : context;
@@ -3553,6 +3661,11 @@ export class BaseQuery {
       .map(s => `(${s})`).join(' AND ');
   }
 
+  /**
+   * @param {string} primaryKeyName
+   * @param {string} cubeName
+   * @returns {unknown}
+   */
   primaryKeySql(primaryKeyName, cubeName) {
     const primaryKeyDimension = this.cubeEvaluator.dimensionByPath([cubeName, primaryKeyName]);
     return this.evaluateSymbolSql(
@@ -3653,7 +3766,6 @@ export class BaseQuery {
    * @param {import('./Granularity').Granularity} granularity
    * @return {string}
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   dimensionTimeGroupedColumn(dimension, granularity) {
     let dtDate;
 
@@ -3693,13 +3805,17 @@ export class BaseQuery {
     }
     // TODO: https://github.com/cube-js/cube.js/issues/4019
     // use single underscore for pre-aggregations to avoid fail of pre-aggregation name replace
+    const lowercaseName = name.toLowerCase();
+    if (lowercaseName === '__user' || lowercaseName === '__cubejoinfield') {
+      return name;
+    }
     return inflection.underscore(name).replace(/\./g, isPreAggregationName ? '_' : '__');
   }
 
   /**
    *
    * @param options
-   * @returns {BaseQuery}
+   * @returns {this}
    */
   newSubQuery(options) {
     const QueryClass = this.constructor;
@@ -4098,7 +4214,6 @@ export class BaseQuery {
         sort: '{{ expr }} {% if asc %}ASC{% else %}DESC{% endif %} NULLS {% if nulls_first %}FIRST{% else %}LAST{% endif %}',
         order_by: '{% if index %} {{ index }} {% else %} {{ expr }} {% endif %} {% if asc %}ASC{% else %}DESC{% endif %}{% if nulls_first %} NULLS FIRST{% endif %}',
         cast: 'CAST({{ expr }} AS {{ data_type }})',
-        cast_to_string: 'CAST({{ expr }} AS TEXT)',
         window_function: '{{ fun_call }} OVER ({% if partition_by_concat %}PARTITION BY {{ partition_by_concat }}{% if order_by_concat or window_frame %} {% endif %}{% endif %}{% if order_by_concat %}ORDER BY {{ order_by_concat }}{% if window_frame %} {% endif %}{% endif %}{% if window_frame %}{{ window_frame }}{% endif %})',
         window_frame_bounds: '{{ frame_type }} BETWEEN {{ frame_start }} AND {{ frame_end }}',
         in_list: '{{ expr }} {% if negated %}NOT {% endif %}IN ({{ in_exprs_concat }})',
@@ -4117,11 +4232,14 @@ export class BaseQuery {
         like_escape: '{{ like_expr }} ESCAPE {{ escape_char }}',
         within_group: '{{ fun_sql }} WITHIN GROUP (ORDER BY {{ within_group_concat }})',
         concat_strings: '{{ strings | join(\' || \' ) }}',
-        rolling_window_expr_timestamp_cast: '{{ value }}'
+        rolling_window_expr_timestamp_cast: '{{ value }}',
+        timestamp_literal: '{{ value }}'
       },
       tesseract: {
         ilike: '{{ expr }} {% if negated %}NOT {% endif %}ILIKE {{ pattern }}', // May require different overloads in Tesseract than the ilike from expressions used in SQLAPI.
-        series_bounds_cast: '{{ expr }}'
+        series_bounds_cast: '{{ expr }}',
+        bool_param_cast: '{{ expr }}',
+        number_param_cast: '{{ expr }}',
       },
       filters: {
         equals: '{{ column }} = {{ value }}{{ is_null_check }}',
@@ -4411,6 +4529,10 @@ export class BaseQuery {
    */
   refreshKeySelect(sql) {
     return `SELECT ${sql} as refresh_key`;
+  }
+
+  partitionInvalidateKeyQueries(_cube, _preAggregation) {
+    // this is not used across all dialects, atm only in KsqlQuery.
   }
 
   preAggregationInvalidateKeyQueries(cube, preAggregation, preAggregationName) {

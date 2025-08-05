@@ -61,6 +61,11 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             r#type: V1CubeMetaType::Cube,
             dimensions: vec![
                 CubeMetaDimension {
+                    name: "KibanaSampleDataEcommerce.id".to_string(),
+                    r#type: "number".to_string(),
+                    ..CubeMetaDimension::default()
+                },
+                CubeMetaDimension {
                     name: "KibanaSampleDataEcommerce.order_date".to_string(),
                     r#type: "time".to_string(),
                     ..CubeMetaDimension::default()
@@ -169,6 +174,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
                 relationship: "belongsTo".to_string(),
             }]),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -220,6 +226,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
                 relationship: "belongsTo".to_string(),
             }]),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -241,6 +248,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: vec![],
             joins: None,
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -320,6 +328,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: Vec::new(),
             joins: Some(Vec::new()),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -438,6 +447,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: Vec::new(),
             joins: Some(Vec::new()),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -463,6 +473,7 @@ pub fn get_string_cube_meta() -> Vec<CubeMeta> {
         segments: vec![],
         joins: None,
         folders: None,
+        nested_folders: None,
         hierarchies: None,
         meta: None,
     }]
@@ -507,6 +518,7 @@ pub fn get_sixteen_char_member_cube() -> Vec<CubeMeta> {
         segments: vec![],
         joins: None,
         folders: None,
+        nested_folders: None,
         hierarchies: None,
         meta: None,
     }]

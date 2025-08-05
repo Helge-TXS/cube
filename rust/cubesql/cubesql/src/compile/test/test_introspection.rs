@@ -842,7 +842,8 @@ async fn datagrip_introspection() -> Result<(), CubeError> {
     insta::assert_snapshot!(
         "datagrip_introspection",
         execute_query(
-            "select current_database(), current_schema(), current_user;".to_string(),
+            "select current_database(), current_catalog, current_schema(), current_user;"
+                .to_string(),
             DatabaseProtocol::PostgreSQL
         )
         .await?
@@ -898,6 +899,55 @@ async fn dbeaver_introspection() -> Result<(), CubeError> {
             )
             .await?
         );
+
+    insta::assert_snapshot!(
+        "dbeaver_introspection_tables_with_descriptions",
+        // NOTE: order by added manually to avoid random snapshot order
+        execute_query(
+            r#"
+            SELECT c.oid,c.*,d.description,pg_catalog.pg_get_expr(c.relpartbound, c.oid) as partition_expr,  pg_catalog.pg_get_partkeydef(c.oid) as partition_key 
+            FROM pg_catalog.pg_class c
+            LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0 AND d.classoid='pg_class'::regclass
+            WHERE c.relnamespace=2200 AND c.relkind not in ('i','I','c')
+            ORDER BY c.oid
+            "#.to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    insta::assert_snapshot!(
+        "dbeaver_introspection_tables",
+        // NOTE: order by added manually to avoid random snapshot order
+        execute_query(
+            r#"
+            select c.oid,pg_catalog.pg_total_relation_size(c.oid) as total_rel_size,pg_catalog.pg_relation_size(c.oid) as rel_size
+            FROM pg_class c
+            WHERE c.relnamespace=2200
+            ORDER BY c.oid
+            "#.to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    insta::assert_snapshot!(
+        "dbeaver_introspection_columns",
+        execute_query(
+            r#"
+            SELECT c.relname,a.*,pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) as def_value,dsc.description,dep.objid
+            FROM pg_catalog.pg_attribute a
+            INNER JOIN pg_catalog.pg_class c ON (a.attrelid=c.oid)
+            LEFT OUTER JOIN pg_catalog.pg_attrdef ad ON (a.attrelid=ad.adrelid AND a.attnum = ad.adnum)
+            LEFT OUTER JOIN pg_catalog.pg_description dsc ON (c.oid=dsc.objoid AND a.attnum = dsc.objsubid)
+            LEFT OUTER JOIN pg_depend dep on dep.refobjid = a.attrelid AND dep.deptype = 'i' and dep.refobjsubid = a.attnum and dep.classid = dep.refclassid
+            WHERE NOT a.attisdropped AND c.relkind not in ('i','I','c') AND c.oid=18000
+            ORDER BY a.attnum
+            "#.to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
 
     Ok(())
 }
@@ -3305,5 +3355,290 @@ order by "table-schema" asc, "table-name" asc, "database-position" asc
         )
         .await?
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_auth_members() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_auth_members",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_auth_members
+            ORDER BY roleid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_available_extension_versions() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_available_extension_versions",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_available_extension_versions
+            ORDER BY name
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_cast() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_cast",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_cast
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_event_trigger() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_event_trigger",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_event_trigger
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_foreign_data_wrapper() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_foreign_data_wrapper",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_foreign_data_wrapper
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_foreign_server() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_foreign_server",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_foreign_server
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_foreign_table() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_foreign_table",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_foreign_table
+            ORDER BY ftrelid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_language() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_language",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_language
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_locks() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_locks",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_locks
+            ORDER BY locktype, database, relation
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_operator() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_operator",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_operator
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_rewrite() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_rewrite",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_rewrite
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_tablespace() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_tablespace",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_tablespace
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_timezone_abbrevs() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_timezone_abbrevs",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_timezone_abbrevs
+            ORDER BY abbrev
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_timezone_names() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_timezone_names",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_timezone_names
+            ORDER BY name
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pg_user_mapping() -> Result<(), CubeError> {
+    insta::assert_snapshot!(
+        "pg_user_mapping",
+        execute_query(
+            r#"
+            SELECT *
+            FROM pg_user_mapping
+            ORDER BY oid
+            "#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL
+        )
+        .await?
+    );
+
     Ok(())
 }

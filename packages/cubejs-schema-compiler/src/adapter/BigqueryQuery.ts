@@ -42,7 +42,7 @@ export class BigqueryQuery extends BaseQuery {
   }
 
   public convertTz(field) {
-    return `TIMESTAMP(DATETIME(${field}), '${this.timezone}')`;
+    return `TIMESTAMP(DATETIME(${field}, '${this.timezone}'))`;
   }
 
   public timeStampCast(value) {
@@ -127,9 +127,9 @@ export class BigqueryQuery extends BaseQuery {
       return [`'${intervalParsed.hour}:${intervalParsed.minute}:${intervalParsed.second}' HOUR TO SECOND`, 'SECOND'];
     } else if (intervalParsed.minute && intervalParsed.second && intKeys === 2) {
       return [`'${intervalParsed.minute}:${intervalParsed.second}' MINUTE TO SECOND`, 'SECOND'];
+    } else if (intervalParsed.millisecond && intKeys === 1) {
+      return [`'${intervalParsed.millisecond}' MILLISECOND`, 'MILLISECOND'];
     }
-
-    // No need to support microseconds.
 
     throw new Error(`Cannot transform interval expression "${interval}" to BigQuery dialect`);
   }
@@ -146,7 +146,7 @@ export class BigqueryQuery extends BaseQuery {
     const values = timeDimension.timeSeries().map(
       ([from, to]) => `select '${from}' f, '${to}' t`
     ).join(' UNION ALL ');
-    return `SELECT ${this.dateTimeCast('dates.f')} date_from, ${this.dateTimeCast('dates.t')} date_to FROM (${values}) AS dates`;
+    return `SELECT ${this.timeStampCast('dates.f')} date_from, ${this.timeStampCast('dates.t')} date_to FROM (${values}) AS dates`;
   }
 
   public timestampFormat() {
@@ -216,14 +216,26 @@ export class BigqueryQuery extends BaseQuery {
    * joining conditions (note timeStampCast)
    */
   public override rollingWindowToDateJoinCondition(granularity) {
-    return this.timeDimensions
-      .filter(td => td.granularity)
-      .map(
-        d => [
-          d,
-          (dateFrom: string, dateTo: string, dateField: string, _dimensionDateFrom: string, _dimensionDateTo: string, _isFromStartToEnd: boolean) => `${dateField} >= ${this.timeGroupedColumn(granularity, dateFrom)} AND ${dateField} <= ${this.timeStampCast(dateTo)}`
-        ]
-      );
+    return Object.values(
+      this.timeDimensions.reduce((acc, td) => {
+        const key = td.dimension;
+
+        if (!acc[key]) {
+          acc[key] = td;
+        }
+
+        if (!acc[key].granularity && td.granularity) {
+          acc[key] = td;
+        }
+
+        return acc;
+      }, {})
+    ).map(
+      d => [
+        d,
+        (dateFrom: string, dateTo: string, dateField: string, _dimensionDateFrom: string, _dimensionDateTo: string, _isFromStartToEnd: boolean) => `${dateField} >= ${this.timeGroupedColumn(granularity, dateFrom)} AND ${dateField} <= ${this.timeStampCast(dateTo)}`
+      ]
+    );
   }
 
   /**
@@ -233,8 +245,21 @@ export class BigqueryQuery extends BaseQuery {
    */
   public override rollingWindowDateJoinCondition(trailingInterval, leadingInterval, offset) {
     offset = offset || 'end';
-    return this.timeDimensions
-      .filter(td => td.granularity)
+    return Object.values(
+      this.timeDimensions.reduce((acc, td) => {
+        const key = td.dimension;
+
+        if (!acc[key]) {
+          acc[key] = td;
+        }
+
+        if (!acc[key].granularity && td.granularity) {
+          acc[key] = td;
+        }
+
+        return acc;
+      }, {})
+    )
       .map(
         d => [d, (dateFrom: string, dateTo: string, dateField: string, _dimensionDateFrom: string, _dimensionDateTo: string, isFromStartToEnd: boolean) => {
         // dateFrom based window
@@ -335,12 +360,13 @@ export class BigqueryQuery extends BaseQuery {
     templates.filters.like_pattern = 'CONCAT({% if start_wild %}\'%\'{% else %}\'\'{% endif %}, LOWER({{ value }}), {% if end_wild %}\'%\'{% else %}\'\'{% endif %})';
     templates.tesseract.ilike = 'LOWER({{ expr }}) {% if negated %}NOT {% endif %} LIKE {{ pattern }}';
     templates.tesseract.series_bounds_cast = 'TIMESTAMP({{ expr }})';
+    templates.tesseract.bool_param_cast = 'CAST({{ expr }} AS BOOL)';
+    templates.tesseract.number_param_cast = 'CAST({{ expr }} AS FLOAT64)';
     templates.types.boolean = 'BOOL';
     templates.types.float = 'FLOAT64';
     templates.types.double = 'FLOAT64';
     templates.types.decimal = 'BIGDECIMAL({{ precision }},{{ scale }})';
     templates.types.binary = 'BYTES';
-    templates.expressions.cast_to_string = 'CAST({{ expr }} AS STRING)';
     templates.operators.is_not_distinct_from = 'IS NOT DISTINCT FROM';
     templates.join_types.full = 'FULL';
     templates.statements.time_series_select = 'SELECT DATETIME(TIMESTAMP(f)) date_from, DATETIME(TIMESTAMP(t)) date_to \n' +

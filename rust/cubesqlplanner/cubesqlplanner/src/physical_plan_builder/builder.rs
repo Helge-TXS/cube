@@ -16,6 +16,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
+
 const TOTAL_COUNT: &str = "total_count";
 const ORIGINAL_QUERY: &str = "original_query";
 
@@ -29,13 +30,20 @@ struct PhysicalPlanBuilderContext {
 }
 
 impl PhysicalPlanBuilderContext {
-    pub fn make_sql_nodes_factory(&self) -> SqlNodesFactory {
+    pub fn make_sql_nodes_factory(&self) -> Result<SqlNodesFactory, CubeError> {
         let mut factory = SqlNodesFactory::new();
-        factory.set_time_shifts(self.time_shifts.clone());
+
+        let (time_shifts, calendar_time_shifts) = self.time_shifts.extract_time_shifts()?;
+        let common_time_shifts = TimeShiftState {
+            dimensions_shifts: time_shifts,
+        };
+
+        factory.set_time_shifts(common_time_shifts);
+        factory.set_calendar_time_shifts(calendar_time_shifts);
         factory.set_count_approx_as_state(self.render_measure_as_state);
         factory.set_ungrouped_measure(self.render_measure_for_ungrouped);
         factory.set_original_sql_pre_aggregations(self.original_sql_pre_aggregations.clone());
-        factory
+        Ok(factory)
     }
 }
 
@@ -77,7 +85,7 @@ impl PhysicalPlanBuilder {
         let from = From::new_from_subselect(source.clone(), ORIGINAL_QUERY.to_string());
         let mut select_builder = SelectBuilder::new(from);
         select_builder.add_count_all(TOTAL_COUNT.to_string());
-        let context_factory = context.make_sql_nodes_factory();
+        let context_factory = context.make_sql_nodes_factory()?;
         Ok(Rc::new(select_builder.build(context_factory)))
     }
 
@@ -102,7 +110,7 @@ impl PhysicalPlanBuilder {
         let mut render_references = HashMap::new();
         let mut measure_references = HashMap::new();
         let mut dimensions_references = HashMap::new();
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         let from = match &logical_plan.source {
             SimpleQuerySource::LogicalJoin(join) => self.process_logical_join(
                 &join,
@@ -185,16 +193,11 @@ impl PhysicalPlanBuilder {
     fn process_pre_aggregation(
         &self,
         pre_aggregation: &Rc<PreAggregation>,
-        _context: &PhysicalPlanBuilderContext,
+        context: &PhysicalPlanBuilderContext,
         measure_references: &mut HashMap<String, QualifiedColumnName>,
         dimensions_references: &mut HashMap<String, QualifiedColumnName>,
     ) -> Result<Rc<From>, CubeError> {
         let mut pre_aggregation_schema = Schema::empty();
-        let pre_aggregation_alias = PlanSqlTemplates::memeber_alias_name(
-            &pre_aggregation.cube_name,
-            &pre_aggregation.name,
-            &None,
-        );
         for dim in pre_aggregation.dimensions.iter() {
             let alias = BaseMemberHelper::default_alias(
                 &dim.cube_name(),
@@ -204,7 +207,7 @@ impl PhysicalPlanBuilder {
             )?;
             dimensions_references.insert(
                 dim.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(dim.full_name())));
         }
@@ -217,7 +220,7 @@ impl PhysicalPlanBuilder {
             )?;
             dimensions_references.insert(
                 dim.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(dim.full_name())));
         }
@@ -230,16 +233,190 @@ impl PhysicalPlanBuilder {
             )?;
             measure_references.insert(
                 meas.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(meas.full_name())));
         }
-        let from = From::new_from_table_reference(
-            pre_aggregation.table_name.clone(),
-            Rc::new(pre_aggregation_schema),
-            Some(pre_aggregation_alias),
-        );
+        let from = self.make_pre_aggregation_source(
+            &pre_aggregation,
+            &pre_aggregation.source,
+            context,
+            measure_references,
+            dimensions_references,
+        )?;
         Ok(from)
+    }
+
+    fn make_pre_aggregation_source(
+        &self,
+        pre_aggregation: &Rc<PreAggregation>,
+        source: &Rc<PreAggregationSource>,
+        _context: &PhysicalPlanBuilderContext,
+        _measure_references: &mut HashMap<String, QualifiedColumnName>,
+        dimensions_references: &mut HashMap<String, QualifiedColumnName>,
+    ) -> Result<Rc<From>, CubeError> {
+        let from = match source.as_ref() {
+            PreAggregationSource::Single(table) => {
+                let table_source = self.make_pre_aggregation_table_source(table)?;
+                From::new(FromSource::Single(table_source))
+            }
+            PreAggregationSource::Union(union) => {
+                let source = self.make_pre_aggregation_union_source(pre_aggregation, union)?;
+                source
+            }
+            PreAggregationSource::Join(join) => {
+                let root_table_source = self.make_pre_aggregation_join_source(&join.root)?;
+                let mut join_builder = JoinBuilder::new(root_table_source);
+                for item in join.items.iter() {
+                    let to_table_source = self.make_pre_aggregation_join_source(&item.to)?;
+                    let condition =
+                        SqlJoinCondition::try_new(self.query_tools.clone(), item.on_sql.clone())?;
+                    let on = JoinCondition::new_base_join(condition);
+                    join_builder.left_join_aliased_source(to_table_source, on);
+                    for member in item.from_members.iter().chain(item.to_members.iter()) {
+                        let alias = BaseMemberHelper::default_alias(
+                            &member.cube_name(),
+                            &member.name(),
+                            &None,
+                            self.query_tools.clone(),
+                        )?;
+                        dimensions_references.insert(
+                            member.full_name(),
+                            QualifiedColumnName::new(None, alias.clone()),
+                        );
+                    }
+                }
+                let from = From::new_from_join(join_builder.build());
+                from
+            }
+        };
+        Ok(from)
+    }
+
+    fn make_pre_aggregation_join_source(
+        &self,
+        source: &PreAggregationSource,
+    ) -> Result<SingleAliasedSource, CubeError> {
+        match source {
+            PreAggregationSource::Single(table) => self.make_pre_aggregation_table_source(table),
+            PreAggregationSource::Union(_) => Err(CubeError::user(format!(
+                "Lambda rollups not allowed inside join rollups"
+            ))),
+            PreAggregationSource::Join(_) => {
+                Err(CubeError::user(format!("Nested rollup joins not allowed")))
+            }
+        }
+    }
+
+    fn make_pre_aggregation_union_source(
+        &self,
+        pre_aggregation: &Rc<PreAggregation>,
+        union: &PreAggregationUnion,
+    ) -> Result<Rc<From>, CubeError> {
+        if union.items.len() == 1 {
+            let table_source = self.make_pre_aggregation_table_source(&union.items[0])?;
+            return Ok(From::new(FromSource::Single(table_source)));
+        }
+
+        let mut union_sources = Vec::new();
+        for item in union.items.iter() {
+            let table_source = self.make_pre_aggregation_table_source(&item)?;
+            let from = From::new(FromSource::Single(table_source));
+            let mut select_builder = SelectBuilder::new(from);
+            for dim in pre_aggregation.dimensions.iter() {
+                let member_ref = dim.clone().as_base_member(self.query_tools.clone())?;
+                let name_in_table = BaseMemberHelper::default_alias(
+                    &item.cube_name,
+                    &dim.name(),
+                    &None,
+                    self.query_tools.clone(),
+                )?;
+                let alias = BaseMemberHelper::default_alias(
+                    &dim.cube_name(),
+                    &dim.name(),
+                    &None,
+                    self.query_tools.clone(),
+                )?;
+                select_builder.add_projection_reference_member(
+                    &member_ref,
+                    QualifiedColumnName::new(None, name_in_table),
+                    Some(alias),
+                );
+            }
+            for (dim, granularity) in pre_aggregation.time_dimensions.iter() {
+                let member_ref = dim.clone().as_base_member(self.query_tools.clone())?;
+                let name_in_table = BaseMemberHelper::default_alias(
+                    &item.cube_name,
+                    &dim.name(),
+                    granularity,
+                    self.query_tools.clone(),
+                )?;
+                let alias = BaseMemberHelper::default_alias(
+                    &dim.cube_name(),
+                    &dim.name(),
+                    granularity,
+                    self.query_tools.clone(),
+                )?;
+                select_builder.add_projection_reference_member(
+                    &member_ref,
+                    QualifiedColumnName::new(None, name_in_table.clone()),
+                    Some(alias),
+                );
+            }
+            for meas in pre_aggregation.measures.iter() {
+                let member_ref = meas.clone().as_base_member(self.query_tools.clone())?;
+                let name_in_table = BaseMemberHelper::default_alias(
+                    &item.cube_name,
+                    &meas.name(),
+                    &meas.alias_suffix(),
+                    self.query_tools.clone(),
+                )?;
+                let alias = BaseMemberHelper::default_alias(
+                    &meas.cube_name(),
+                    &meas.name(),
+                    &meas.alias_suffix(),
+                    self.query_tools.clone(),
+                )?;
+                select_builder.add_projection_reference_member(
+                    &member_ref,
+                    QualifiedColumnName::new(None, name_in_table.clone()),
+                    Some(alias),
+                );
+            }
+            let context = SqlNodesFactory::new();
+            let select = select_builder.build(context);
+            let query_plan = QueryPlan::Select(Rc::new(select));
+            union_sources.push(query_plan);
+        }
+
+        let plan = QueryPlan::Union(Rc::new(Union::new(union_sources)));
+        let source = SingleSource::Subquery(Rc::new(plan));
+        let alias = PlanSqlTemplates::memeber_alias_name(
+            &pre_aggregation.cube_name,
+            &pre_aggregation.name,
+            &None,
+        );
+        let aliased_source = SingleAliasedSource { source, alias };
+        let from = From::new(FromSource::Single(aliased_source));
+        Ok(from)
+    }
+
+    fn make_pre_aggregation_table_source(
+        &self,
+        table: &PreAggregationTable,
+    ) -> Result<SingleAliasedSource, CubeError> {
+        let name = table.alias.clone().unwrap_or_else(|| table.name.clone());
+        let table_name = self
+            .query_tools
+            .base_tools()
+            .pre_aggregation_table_name(table.cube_name.clone(), name.clone())?;
+        let alias = PlanSqlTemplates::memeber_alias_name(&table.cube_name, &name, &None);
+        let res = SingleAliasedSource::new_from_table_reference(
+            table_name,
+            Rc::new(Schema::empty()),
+            Some(alias),
+        );
+        Ok(res)
     }
 
     fn build_full_key_aggregate_query(
@@ -305,7 +482,7 @@ impl PhysicalPlanBuilder {
         select_builder.set_offset(logical_plan.offset);
         select_builder.set_ctes(ctes);
 
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         context_factory.set_render_references(render_references);
 
         Ok(Rc::new(select_builder.build(context_factory)))
@@ -640,7 +817,7 @@ impl PhysicalPlanBuilder {
         let mut join_builder =
             JoinBuilder::new_from_subselect(keys_query.clone(), keys_query_alias.clone());
 
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         let primary_keys_dimensions = &aggregate_multiplied_subquery
             .keys_subquery
             .primary_keys_dimensions;
@@ -778,7 +955,7 @@ impl PhysicalPlanBuilder {
             &measure_subquery.dimension_subqueries,
             &mut render_references,
         )?;
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         let mut select_builder = SelectBuilder::new(from);
 
         context_factory.set_ungrouped_measure(true);
@@ -841,7 +1018,7 @@ impl PhysicalPlanBuilder {
 
         select_builder.set_distinct();
         select_builder.set_filter(keys_subquery.filter.all_filters());
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         context_factory.set_render_references(render_references);
         let res = Rc::new(select_builder.build(context_factory));
         Ok(res)
@@ -927,7 +1104,7 @@ impl PhysicalPlanBuilder {
             &mut render_references,
         )?;
         let mut select_builder = SelectBuilder::new(from);
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         let args = vec![get_date_range
             .time_dimension
             .clone()
@@ -965,8 +1142,9 @@ impl PhysicalPlanBuilder {
             ));
         };
 
-        let ts_date_range = if self.plan_sql_templates.supports_generated_time_series()
-            && granularity_obj.is_predefined_granularity()
+        let ts_date_range = if self
+            .plan_sql_templates
+            .supports_generated_time_series(granularity_obj.is_predefined_granularity())?
         {
             if let Some(date_range) = time_dimension_symbol
                 .get_range_for_time_series(date_range, self.query_tools.timezone())?
@@ -1061,7 +1239,7 @@ impl PhysicalPlanBuilder {
             MultiStageRollingWindowType::ToDate(to_date_rolling_window) => {
                 JoinCondition::new_to_date_rolling_join(
                     root_alias.clone(),
-                    to_date_rolling_window.granularity.clone(),
+                    to_date_rolling_window.granularity_obj.clone(),
                     Expr::Reference(QualifiedColumnName::new(
                         Some(measure_input_alias.clone()),
                         base_time_dimension_alias,
@@ -1085,14 +1263,14 @@ impl PhysicalPlanBuilder {
             on,
         );
 
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         context_factory.set_rolling_window(true);
         let from = From::new_from_join(join_builder.build());
         let references_builder = ReferencesBuilder::new(from.clone());
         let mut render_references = HashMap::new();
         let mut select_builder = SelectBuilder::new(from.clone());
 
-        //We insert render reference for main time dimension (with the some granularity as in time series to avoid unnecessary date_tranc)
+        //We insert render reference for main time dimension (with some granularity as in time series to avoid unnecessary date_tranc)
         render_references.insert(
             time_dimension.full_name(),
             QualifiedColumnName::new(Some(root_alias.clone()), format!("date_from")),
@@ -1224,7 +1402,7 @@ impl PhysicalPlanBuilder {
             );
         }
 
-        let mut context_factory = context.make_sql_nodes_factory();
+        let mut context_factory = context.make_sql_nodes_factory()?;
         let partition_by = measure_calculation
             .partition_by
             .iter()

@@ -37,6 +37,22 @@ impl Debug for MemberSymbol {
     }
 }
 
+impl PartialEq for MemberSymbol {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Dimension(l0), Self::Dimension(r0)) => l0.full_name() == r0.full_name(),
+            (Self::TimeDimension(l0), Self::TimeDimension(r0)) => l0.full_name() == r0.full_name(),
+            (Self::Measure(l0), Self::Measure(r0)) => l0.full_name() == r0.full_name(),
+            (Self::CubeName(l0), Self::CubeName(r0)) => l0.cube_name() == r0.cube_name(),
+            (Self::CubeTable(l0), Self::CubeTable(r0)) => l0.cube_name() == r0.cube_name(),
+            (Self::MemberExpression(l0), Self::MemberExpression(r0)) => {
+                l0.full_name() == r0.full_name()
+            }
+            _ => false,
+        }
+    }
+}
+
 impl MemberSymbol {
     pub fn new_measure(symbol: Rc<MeasureSymbol>) -> Rc<Self> {
         Rc::new(Self::Measure(symbol))
@@ -161,6 +177,21 @@ impl MemberSymbol {
             current = reference;
         }
         current
+    }
+
+    pub fn has_member_in_reference_chain(&self, member: &Rc<MemberSymbol>) -> bool {
+        if self.full_name() == member.full_name() {
+            return true;
+        }
+
+        let mut current = self.reference_member();
+        while let Some(reference) = current {
+            if reference.full_name() == member.full_name() {
+                return true;
+            }
+            current = reference.reference_member();
+        }
+        false
     }
 
     pub fn owned_by_cube(&self) -> bool {

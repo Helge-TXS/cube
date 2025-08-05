@@ -54,6 +54,7 @@ import {
   PrimaryKeysQueryResult,
   ForeignKeysQueryResult,
   DatabaseStructure,
+  InformationSchemaColumn,
 } from './driver.interface';
 
 /**
@@ -427,28 +428,43 @@ export abstract class BaseDriver implements DriverInterface {
     return false;
   }
 
-  protected informationColumnsSchemaReducer(result: any, i: any): DatabaseStructure {
-    let schema = (result[i.table_schema] || {});
-    const columns = (schema[i.table_name] || []);
+  protected informationColumnsSchemaReducer(result: DatabaseStructure, i: InformationSchemaColumn): DatabaseStructure {
+    if (!result[i.table_schema]) {
+      result[i.table_schema] = {};
+    }
 
-    columns.push({
+    if (!result[i.table_schema][i.table_name]) {
+      result[i.table_schema][i.table_name] = [];
+    }
+
+    result[i.table_schema][i.table_name].push({
       name: i.column_name,
       type: i.data_type,
       attributes: i.key_type ? ['primaryKey'] : []
     });
 
-    columns.sort();
-    schema[i.table_name] = columns;
-    schema = sortByKeys(schema);
-    result[i.table_schema] = schema;
-
-    return sortByKeys(result);
+    return result;
   }
 
-  public tablesSchema(): Promise<DatabaseStructure> {
-    const query = this.informationSchemaQuery();
+  protected informationColumnsSchemaSorter(data: InformationSchemaColumn[]) {
+    return data
+      .map((i) => ({
+        ...i,
+        sortedKeyServiceField: `${i.table_schema}.${i.table_name}.${i.column_name}`,
+      }))
+      .sort((a, b) => a.sortedKeyServiceField.localeCompare(b.sortedKeyServiceField));
+  }
 
-    return this.query(query, []).then(data => data.reduce<DatabaseStructure>(this.informationColumnsSchemaReducer, {}));
+  public async tablesSchema(): Promise<DatabaseStructure> {
+    const query = this.informationSchemaQuery();
+    const data: InformationSchemaColumn[] = await this.query(query, []);
+
+    if (!data.length) {
+      return {};
+    }
+
+    const sortedData = this.informationColumnsSchemaSorter(data);
+    return sortedData.reduce<DatabaseStructure>(this.informationColumnsSchemaReducer, {});
   }
 
   // Extended version of tablesSchema containing primary and foreign keys
@@ -794,10 +810,11 @@ export abstract class BaseDriver implements DriverInterface {
     bucketName: string,
     tableName: string
   ): Promise<string[]> {
-    const storage = new Storage({
-      credentials: gcsConfig.credentials,
-      projectId: gcsConfig.credentials.project_id
-    });
+    const storage = new Storage(
+      gcsConfig.credentials
+        ? { credentials: gcsConfig.credentials, projectId: gcsConfig.credentials.project_id }
+        : undefined
+    );
     const bucket = storage.bucket(bucketName);
     const [files] = await bucket.getFiles({ prefix: `${tableName}/` });
     if (files.length) {

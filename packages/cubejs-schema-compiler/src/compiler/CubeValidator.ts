@@ -1,7 +1,7 @@
 import Joi from 'joi';
 import cronParser from 'cron-parser';
 
-import type { CubeSymbols } from './CubeSymbols';
+import type { CubeSymbols, CubeDefinition } from './CubeSymbols';
 import type { ErrorReporter } from './ErrorReporter';
 
 /* *****************************
@@ -185,6 +185,10 @@ const BaseDimensionWithoutSubQuery = {
             return isValid ? value : helper.message(msg);
           }),
           offset: GranularityOffset.optional(),
+        }),
+        Joi.object().keys({
+          title: Joi.string(),
+          sql: Joi.func().required()
         })
       ])).optional(),
     otherwise: Joi.forbidden()
@@ -571,10 +575,13 @@ const timeShiftItemRequired = Joi.object({
 });
 
 const timeShiftItemOptional = Joi.object({
-  timeDimension: Joi.func(), // не required
-  interval: regexTimeInterval.required(),
-  type: Joi.string().valid('next', 'prior').required(),
-});
+  timeDimension: Joi.func(), // not required
+  interval: regexTimeInterval,
+  name: identifier,
+  type: Joi.string().valid('next', 'prior'),
+})
+  .xor('name', 'interval')
+  .and('interval', 'type');
 
 const MeasuresSchema = Joi.object().pattern(identifierRegex, Joi.alternatives().conditional(Joi.ref('.multiStage'), [
   {
@@ -619,6 +626,27 @@ const MeasuresSchema = Joi.object().pattern(identifierRegex, Joi.alternatives().
   ]
 ));
 
+const CalendarTimeShiftItem = Joi.alternatives().try(
+  Joi.object({
+    name: identifier.required(),
+    interval: regexTimeInterval.required(),
+    type: Joi.string().valid('next', 'prior').required(),
+    sql: Joi.forbidden()
+  }),
+  Joi.object({
+    name: identifier.required(),
+    sql: Joi.func().required(),
+    interval: Joi.forbidden(),
+    type: Joi.forbidden()
+  }),
+  Joi.object({
+    interval: regexTimeInterval.required(),
+    type: Joi.string().valid('next', 'prior').required(),
+    sql: Joi.func().required(),
+    name: Joi.forbidden()
+  })
+);
+
 const DimensionsSchema = Joi.object().pattern(identifierRegex, Joi.alternatives().try(
   inherit(BaseDimensionWithoutSubQuery, {
     case: Joi.object().keys({
@@ -657,6 +685,13 @@ const DimensionsSchema = Joi.object().pattern(identifierRegex, Joi.alternatives(
     type: Joi.any().valid('number').required(),
     sql: Joi.func().required(),
     addGroupBy: Joi.func(),
+  }),
+  // TODO should be valid only for calendar cubes, but this requires significant refactoring
+  // of all schemas. Left for the future when we'll switch to zod.
+  inherit(BaseDimensionWithoutSubQuery, {
+    type: Joi.any().valid('time').required(),
+    sql: Joi.func().required(),
+    timeShift: Joi.array().items(CalendarTimeShiftItem),
   })
 ));
 
@@ -786,9 +821,23 @@ const baseSchema = {
 const cubeSchema = inherit(baseSchema, {
   sql: Joi.func(),
   sqlTable: Joi.func(),
+  calendar: Joi.boolean().strict(),
 }).xor('sql', 'sqlTable').messages({
   'object.xor': 'You must use either sql or sqlTable within a model, but not both'
 });
+
+const folderSchema = Joi.object().keys({
+  name: Joi.string().required(),
+  includes: Joi.alternatives([
+    Joi.string().valid('*'),
+    Joi.array().items(
+      Joi.alternatives([
+        Joi.string().required(),
+        Joi.link('#folderSchema'), // Can contain nested folders
+      ]),
+    ),
+  ]).required(),
+}).id('folderSchema');
 
 const viewSchema = inherit(baseSchema, {
   isView: Joi.boolean().strict(),
@@ -817,13 +866,7 @@ const viewSchema = inherit(baseSchema, {
       'object.oxor': 'Using split together with prefix is not supported'
     })
   ),
-  folders: Joi.array().items(Joi.object().keys({
-    name: Joi.string().required(),
-    includes: Joi.alternatives([
-      Joi.string().valid('*'),
-      Joi.array().items(Joi.string().required())
-    ]).required(),
-  })),
+  folders: Joi.array().items(folderSchema),
 });
 
 function formatErrorMessageFromDetails(explain, d) {
@@ -909,13 +952,13 @@ export class CubeValidator {
     if (result.error != null) {
       errorReporter.error(formatErrorMessage(result.error), result.error);
     } else {
-      this.validCubes[cube.name] = true;
+      this.validCubes.set(cube.name, true);
     }
 
     return result;
   }
 
-  public isCubeValid(cube) {
-    return this.validCubes[cube.name] || cube.isSplitView;
+  public isCubeValid(cube: CubeDefinition): boolean {
+    return this.validCubes.get(cube.name) ?? cube.isSplitView ?? false;
   }
 }
