@@ -11,6 +11,7 @@ const {
 const { BaseDriver, TableColumn } = require('@cubejs-backend/base-driver');
 const oracledb = require('oracledb');
 const { reduce } = require('ramda');
+const moment = require("moment");
 
 const sortByKeys = (unordered) => {
   const ordered = {};
@@ -42,6 +43,8 @@ const reduceCb = (result, i) => {
 
   return sortByKeys(result);
 };
+
+const timestampTypeParser = (val) => moment(val).format(moment.HTML5_FMT.DATETIME_LOCAL_MS);
 
 /**
  * Oracle driver class.
@@ -79,7 +82,7 @@ class OracleDriver extends BaseDriver {
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP ||
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_LTZ ||
         metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_TZ)
-        return {converter: (v) => v.toISOString() };
+        return {converter: timestampTypeParser };
     };
 
     this.config = {
