@@ -11,6 +11,7 @@ const GRANULARITY_VALUE = {
   minute: 'mm',
   second: 'ss',
   month: 'MM',
+  quarter: 'Q',
   year: 'YYYY'
 };
 
@@ -97,6 +98,9 @@ export class OracleQuery extends BaseQuery {
   public timeGroupedColumn(granularity, dimension) {
     if (!granularity) {
       return dimension;
+    }
+    if(granularity === 'second') {
+        return `CAST(${dimension} AS DATE)`;
     }
     return `TRUNC(${dimension}, '${GRANULARITY_VALUE[granularity]}')`;
   }
