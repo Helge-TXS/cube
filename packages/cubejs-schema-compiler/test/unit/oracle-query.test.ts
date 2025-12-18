@@ -904,4 +904,108 @@ describe('OracleQuery', () => {
     expect(sql).toMatch(/GROUP BY\s+TRUNC/);
     expect(params).toEqual(['2024-01-01T00:00:00.000Z', '2024-12-31T23:59:59.999Z']);
   });
+
+  it('generates refresh key SELECT with FROM DUAL', async () => {
+    await compiler.compile();
+
+    const query = new OracleQuery(
+      { joinGraph, cubeEvaluator, compiler },
+      {
+        measures: ['visitors.count'],
+        timezone: 'UTC'
+      }
+    );
+
+    // Test the refreshKeySelect method directly
+    const refreshKeySQL = query.refreshKeySelect('FLOOR(12345)');
+
+    // Oracle should include FROM DUAL in refresh key queries
+    expect(refreshKeySQL).toBe('SELECT FLOOR(12345) as refresh_key FROM DUAL');
+    expect(refreshKeySQL).toContain('FROM DUAL');
+    expect(refreshKeySQL).toMatch(/SELECT\s+.*\s+as\s+refresh_key\s+FROM\s+DUAL/);
+  });
+
+  describe('refreshKeySelect', () => {
+    it('should add FROM DUAL to refresh key SQL', async () => {
+      await compiler.compile();
+      
+      const query = new OracleQuery(
+        { joinGraph, cubeEvaluator, compiler },
+        {
+          measures: [],
+          dimensions: [],
+          timeDimensions: [],
+          filters: [],
+          timezone: 'UTC'
+        }
+      );
+
+      const inputSql = 'FLOOR((((cast (systimestamp at time zone \'UTC\' as date) - date \'1970-01-01\') * 86400)) / 10) as refresh_key';
+      const result = query.refreshKeySelect(inputSql);
+      
+      expect(result).toBe('SELECT FLOOR((((cast (systimestamp at time zone \'UTC\' as date) - date \'1970-01-01\') * 86400)) / 10) as refresh_key FROM DUAL');
+    });
+
+    it('should handle simple refresh key expressions', async () => {
+      await compiler.compile();
+      
+      const query = new OracleQuery(
+        { joinGraph, cubeEvaluator, compiler },
+        {
+          measures: [],
+          dimensions: [],
+          timeDimensions: [],
+          filters: [],
+          timezone: 'UTC'
+        }
+      );
+
+      const inputSql = '1';
+      const result = query.refreshKeySelect(inputSql);
+      
+      expect(result).toBe('SELECT 1 FROM DUAL');
+    });
+
+    it('should handle complex expressions with aliases', async () => {
+      await compiler.compile();
+      
+      const query = new OracleQuery(
+        { joinGraph, cubeEvaluator, compiler },
+        {
+          measures: [],
+          dimensions: [],
+          timeDimensions: [],
+          filters: [],
+          timezone: 'UTC'
+        }
+      );
+
+      const inputSql = 'FLOOR(EXTRACT(EPOCH FROM NOW()) / 3600) as hourly_key';
+      const result = query.refreshKeySelect(inputSql);
+      
+      expect(result).toBe('SELECT FLOOR(EXTRACT(EPOCH FROM NOW()) / 3600) as hourly_key FROM DUAL');
+    });
+
+    it('should work with unixTimestampSql output', async () => {
+      await compiler.compile();
+      
+      const query = new OracleQuery(
+        { joinGraph, cubeEvaluator, compiler },
+        {
+          measures: [],
+          dimensions: [],
+          timeDimensions: [],
+          filters: [],
+          timezone: 'UTC'
+        }
+      );
+
+      const unixSql = query.unixTimestampSql();
+      const refreshKeySql = `FLOOR(${unixSql} / 3600)`;
+      const result = query.refreshKeySelect(refreshKeySql);
+      
+      expect(result).toBe('SELECT FLOOR(((cast (systimestamp at time zone \'UTC\' as date) - date \'1970-01-01\') * 86400) / 3600) FROM DUAL');
+      expect(result).toContain('FROM DUAL');
+    });
+  });
 });
