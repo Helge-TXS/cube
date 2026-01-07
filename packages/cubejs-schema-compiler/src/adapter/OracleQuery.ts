@@ -203,11 +203,4 @@ export class OracleQuery extends BaseQuery {
     }
     return name;
   }
-
-  /**
-   * Oracle requires FROM DUAL for SELECT statements without a table
-   */
-  public refreshKeySelect(sql) {
-    return `SELECT ${sql} as refresh_key FROM DUAL`;
-  }
 }
