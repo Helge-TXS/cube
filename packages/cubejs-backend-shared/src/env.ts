@@ -1969,6 +1969,64 @@ const variables: Record<string, (...args: any) => any> = {
   },
 
   /** ***************************************************************
+   * Oracle Driver                                                        *
+   **************************************************************** */
+
+  /**
+   * Oracle thick mode flag.
+   */
+  dbOracleThickMode: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => {
+    const val = process.env[
+      keyByDataSource('CUBEJS_DB_ORACLE_THICK_MODE', dataSource)
+    ];
+    if (val) {
+      if (val.toLowerCase() === 'true') {
+        return true;
+      } else if (val.toLowerCase() === 'false') {
+        return false;
+      } else {
+        throw new TypeError(
+          `The ${
+            keyByDataSource('CUBEJS_DB_ORACLE_THICK_MODE', dataSource)
+          } must be either 'true' or 'false'.`
+        );
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Oracle thick mode library directory.
+   */
+  dbOracleLibDir: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_DB_ORACLE_LIB_DIR', dataSource)
+    ]
+  ),
+
+  /**
+   * Oracle thick mode configuration directory.
+   * Takes precedence over TNS_ADMIN environment variable.
+   */
+  dbOracleConfigDir: ({
+    dataSource,
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_DB_ORACLE_CONFIG_DIR', dataSource)
+    ]
+  ),
+
+  /** ***************************************************************
    * Presto/Trino Driver                                                  *
    **************************************************************** */
 
