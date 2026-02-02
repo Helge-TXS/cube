@@ -12,6 +12,8 @@ const { BaseDriver, TableColumn } = require('@cubejs-backend/base-driver');
 const oracledb = require('oracledb');
 const { reduce } = require('ramda');
 
+let thickModeInitialized = false;
+
 const sortByKeys = (unordered) => {
   const ordered = {};
 
@@ -44,6 +46,55 @@ const reduceCb = (result, i) => {
 };
 
 /**
+ * Initialize Oracle thick mode if enabled.
+ * Must be called once before any pool creation.
+ * @param {string} dataSource - The data source name
+ */
+function initThickMode(dataSource) {
+  if (thickModeInitialized) {
+    return;
+  }
+
+  const thickMode = getEnv('dbOracleThickMode', { dataSource });
+  if (!thickMode) {
+    return;
+  }
+
+  const libDir = getEnv('dbOracleLibDir', { dataSource });
+  const configDir = getEnv('dbOracleConfigDir', { dataSource });
+
+  const options = {};
+  if (libDir) {
+    options.libDir = libDir;
+  }
+  if (configDir) {
+    options.configDir = configDir;
+  }
+
+  try {
+    oracledb.initOracleClient(options);
+    thickModeInitialized = true;
+    console.log(
+      `[OracleDriver] Initialized in thick mode${libDir ? ` (libDir: ${libDir})` : ''}${configDir ? ` (configDir: ${configDir})` : ''}`
+    );
+  } catch (error) {
+    if (error.message && error.message.includes('DPI-1047')) {
+      const libDirHint = libDir
+        ? `CUBEJS_DB_ORACLE_LIB_DIR is set to "${libDir}" but Oracle Client libraries were not found there.`
+        : 'Set CUBEJS_DB_ORACLE_LIB_DIR to the path of your Oracle Instant Client libraries.';
+
+      throw new Error(
+        `Oracle thick mode is enabled but Oracle Client libraries could not be loaded. ` +
+        `${libDirHint} ` +
+        `See https://node-oracledb.readthedocs.io/en/latest/user_guide/installation.html for installation instructions. ` +
+        `Original error: ${error.message}`
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Oracle driver class.
  */
 class OracleDriver extends BaseDriver {
@@ -52,6 +103,24 @@ class OracleDriver extends BaseDriver {
    */
   static getDefaultConcurrency() {
     return 2;
+  }
+
+  /**
+   * Returns the configurable driver options.
+   * Note: It returns the unprefixed option names.
+   * In case of using multi-sources options need to be prefixed manually.
+   */
+  static driverEnvVariables() {
+    return [
+      'CUBEJS_DB_NAME',
+      'CUBEJS_DB_USER',
+      'CUBEJS_DB_PASS',
+      'CUBEJS_DB_HOST',
+      'CUBEJS_DB_PORT',
+      'CUBEJS_DB_ORACLE_THICK_MODE',
+      'CUBEJS_DB_ORACLE_LIB_DIR',
+      'CUBEJS_DB_ORACLE_CONFIG_DIR',
+    ];
   }
 
   /**
@@ -65,6 +134,9 @@ class OracleDriver extends BaseDriver {
     const dataSource =
       config.dataSource ||
       assertDataSource('default');
+
+    // Initialize thick mode before any pool creation
+    initThickMode(dataSource);
 
     this.db = oracledb;
     this.db.outFormat = this.db.OBJECT;
