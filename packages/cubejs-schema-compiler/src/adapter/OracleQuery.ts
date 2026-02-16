@@ -99,8 +99,8 @@ export class OracleQuery extends BaseQuery {
     if (!granularity) {
       return dimension;
     }
-    if(granularity === 'second') {
-        return `CAST(${dimension} AS DATE)`;
+    if (granularity === 'second') {
+      return `CAST(${dimension} AS DATE)`;
     }
     return `TRUNC(${dimension}, '${GRANULARITY_VALUE[granularity]}')`;
   }
