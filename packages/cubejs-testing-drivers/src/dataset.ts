@@ -1,5 +1,16 @@
 import { Cast } from './types/Cast';
 
+/**
+ * Inserts SELECT_SUFFIX (e.g. " FROM DUAL" for Oracle) before each
+ * UNION ALL keyword and after the very last SELECT row.
+ */
+function applySelectSuffix(sql: string, suffix: string): string {
+  if (!suffix) return sql;
+  return sql
+    .replace(/(\s+)(union\s+all)/gi, `${suffix}$1$2`)
+    .replace(/(\S)(\s*)$/, `$1${suffix}$2`);
+}
+
 function create(table: string, query: string, cast: Cast, suf?: string): string {
   return `
   ${cast.CREATE_TBL_PREFIX}${suf ? `${table}_${suf}` : table}${cast.CREATE_TBL_SUFFIX}
@@ -10,7 +21,7 @@ function create(table: string, query: string, cast: Cast, suf?: string): string 
 }
 
 export const Customers = {
-  select: (_cast: Cast) => `
+  select: (cast: Cast) => applySelectSuffix(`
     select 'AH-10465' as customer_id, 'Customer 1' as customer_name union all
     select 'AJ-10780' as customer_id, 'Customer 2' as customer_name union all
     select 'AS-10225' as customer_id, 'Customer 3' as customer_name union all
@@ -52,12 +63,12 @@ export const Customers = {
     select 'TB-21175' as customer_id, 'Customer 39' as customer_name union all
     select 'TS-21205' as customer_id, 'Customer 40' as customer_name union all
     select 'WB-21850' as customer_id, 'Customer 41' as customer_name
-  `,
+  `, cast.SELECT_SUFFIX),
   create: (cast: Cast, name: string, suf?: string) => create(name, Customers.select(cast), cast, suf),
 };
 
 export const Products = {
-  select: (_cast: Cast) => `
+  select: (cast: Cast) => applySelectSuffix(`
     select 'Furniture' as category, 'Tables' as sub_category, 'Anderson Hickey Conga Table Tops & Accessories' as product_name union all
     select 'Furniture' as category, 'Tables' as sub_category, 'Balt Solid Wood Rectangular Table' as product_name union all
     select 'Furniture' as category, 'Bookcases' as sub_category, 'DMI Eclipse Executive Suite Bookcases' as product_name union all
@@ -86,14 +97,14 @@ export const Products = {
     select 'Technology' as category, 'Copiers' as sub_category, 'Hewlett Packard 610 Color Digital Copier / Printer' as product_name union all
     select 'Technology' as category, 'Machines' as sub_category, 'Lexmark 20R1285 X6650 Wireless All-in-One Printer' as product_name union all
     select 'Technology' as category, 'Machines' as sub_category, 'Okidata C610n Printer' as product_name
-  `,
+  `, cast.SELECT_SUFFIX),
   create: (cast: Cast, name: string, suf?: string) => create(name, Products.select(cast), cast, suf),
 };
 
 export const ECommerce = {
   select: (cast: Cast) => {
-    const { DATE_PREFIX, DATE_SUFFIX } = cast;
-    return `
+    const { DATE_PREFIX, DATE_SUFFIX, SELECT_SUFFIX } = cast;
+    return applySelectSuffix(`
       select 3060 as row_id, 'CA-2017-131492' as order_id, ${DATE_PREFIX}'2020-10-19'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-10-20'${DATE_SUFFIX} as completed_date, 'HH-15010' as customer_id, 'San Francisco' as city, 'Furniture' as category, 'Tables' as sub_category, 'Anderson Hickey Conga Table Tops & Accessories' as product_name, 24.36800 as sales, 2 as quantity, 0.20000 as discount, -3.35060 as profit union all
       select 523 as row_id,  'CA-2017-145142' as order_id, ${DATE_PREFIX}'2020-01-23'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-01-24'${DATE_SUFFIX} as completed_date, 'MC-17605' as customer_id, 'Detroit' as city, 'Furniture' as category, 'Tables' as sub_category, 'Balt Solid Wood Rectangular Table' as product_name, 210.98000 as sales, 2 as quantity, 0.00000 as discount, 21.09800 as profit union all
       select 9584 as row_id, 'CA-2017-116127' as order_id, ${DATE_PREFIX}'2020-06-25'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-06-26'${DATE_SUFFIX} as completed_date, 'SB-20185' as customer_id, 'New York City' as city, 'Furniture' as category, 'Bookcases' as sub_category, 'DMI Eclipse Executive Suite Bookcases' as product_name, 400.78400 as sales, 1 as quantity, 0.20000 as discount, -5.00980 as profit union all
@@ -138,14 +149,14 @@ export const ECommerce = {
       select 8958 as row_id, 'CA-2017-105620' as order_id, ${DATE_PREFIX}'2020-12-25'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-12-26'${DATE_SUFFIX} as completed_date, 'JH-15430' as customer_id, 'Columbus' as city, 'Technology' as category, 'Machines' as sub_category, 'Lexmark 20R1285 X6650 Wireless All-in-One Printer' as product_name, 120.00000 as sales, 2 as quantity, 0.50000 as discount, -7.20000 as profit union all
       select 8878 as row_id, 'CA-2017-126928' as order_id, ${DATE_PREFIX}'2020-09-17'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-09-18'${DATE_SUFFIX} as completed_date, 'GZ-14470' as customer_id, 'Morristown' as city, 'Technology' as category, 'Machines' as sub_category, 'Lexmark 20R1285 X6650 Wireless All-in-One Printer' as product_name, 480.00000 as sales, 4 as quantity, 0.00000 as discount, 225.60000 as profit union all
       select 7293 as row_id, 'CA-2017-109183' as order_id, ${DATE_PREFIX}'2020-12-04'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-12-05'${DATE_SUFFIX} as completed_date, 'LR-16915' as customer_id, 'Columbus' as city, 'Technology' as category, 'Machines' as sub_category, 'Okidata C610n Printer' as product_name, 649.00000 as sales, 2 as quantity, 0.50000 as discount, -272.58000 as profit
-    `;
+    `, SELECT_SUFFIX);
   },
   create: (cast: Cast, name: string, suf?: string) => create(name, ECommerce.select(cast), cast, suf),
 };
 
 export const BigECommerce = {
   select: (cast: Cast) => {
-    const { GENERATE_BIG_SERIES, DATE_PREFIX, DATE_SUFFIX, TRUE_LITERAL, FALSE_LITERAL } = cast;
+    const { GENERATE_BIG_SERIES, DATE_PREFIX, DATE_SUFFIX, SELECT_SUFFIX, TRUE_LITERAL, FALSE_LITERAL } = cast;
     const trueLiteral = TRUE_LITERAL || 'true';
     const falseLiteral = FALSE_LITERAL || 'false';
     const data = `
@@ -194,21 +205,22 @@ export const BigECommerce = {
       select 8878 as row_id, 'CA-2017-126928' as order_id, ${DATE_PREFIX}'2020-09-17'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-09-18'${DATE_SUFFIX} as completed_date, 'GZ-14470' as customer_id, 'Morristown' as city, 'Technology' as category, 'Machines' as sub_category, 'Lexmark 20R1285 X6650 Wireless All-in-One Printer' as product_name, 600.00000 as sales, 4 as quantity, 0.00000 as discount, 225.60000 as profit, ${falseLiteral} as is_returning union all
       select 7293 as row_id, 'CA-2017-109183' as order_id, ${DATE_PREFIX}'2020-12-04'${DATE_SUFFIX} as order_date, ${DATE_PREFIX}'2020-12-05'${DATE_SUFFIX} as completed_date, 'LR-16915' as customer_id, 'Columbus' as city, 'Technology' as category, 'Machines' as sub_category, 'Okidata C610n Printer' as product_name, 649.00000 as sales, 2 as quantity, 0.50000 as discount, -272.58000 as profit, ${falseLiteral} as is_returning
     `;
+    const suffixedData = applySelectSuffix(data, SELECT_SUFFIX);
     if (!GENERATE_BIG_SERIES) {
-      return `SELECT row_id as id, row_id, order_id, order_date, completed_date, city, category, sub_category, product_name, customer_id, sales, quantity, discount, profit, is_returning from (${data}) d`;
+      return `SELECT row_id as id, row_id, order_id, order_date, completed_date, city, category, sub_category, product_name, customer_id, sales, quantity, discount, profit, is_returning from (${suffixedData}) d`;
     }
 
-    return `select value * 10000 + row_id as id, row_id, order_id, order_date, completed_date, city, category, sub_category, product_name, customer_id, sales, quantity, discount, profit, is_returning from ${GENERATE_BIG_SERIES} CROSS JOIN (${data}) d`;
+    return `select value * 10000 + row_id as id, row_id, order_id, order_date, completed_date, city, category, sub_category, product_name, customer_id, sales, quantity, discount, profit, is_returning from ${GENERATE_BIG_SERIES} CROSS JOIN (${suffixedData}) d`;
   },
   create: (cast: Cast, name: string, suf?: string) => create(name, BigECommerce.select(cast), cast, suf),
 };
 
 export const RetailCalendar = {
   select: (cast: Cast) => {
-    const { DATE_PREFIX, DATE_SUFFIX } = cast;
+    const { DATE_PREFIX, DATE_SUFFIX, SELECT_SUFFIX } = cast;
     // Calendar data for retail dates holds full 2020 year and small portion of the end of 2019.
     // As some DWHs are not able to process large datasets (e.g. Athena throws Member must have length less than or equal to 262144).
-    return `
+    return applySelectSuffix(`
       SELECT ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX} AS date_val, '2019' AS retail_year_name, '2019-Q1' AS retail_quarter_name, '2019-M01' AS retail_month_name, '2019-W01' AS retail_week_name, ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX} AS retail_year_begin_date, ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX} AS retail_quarter_begin_date, ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX} AS retail_month_begin_date, ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX} AS retail_week_begin_date, ${DATE_PREFIX}'2019-01-06'${DATE_SUFFIX} AS retail_date_prev_month, ${DATE_PREFIX}'2018-11-04'${DATE_SUFFIX} AS retail_date_prev_quarter, ${DATE_PREFIX}'2018-02-04'${DATE_SUFFIX} AS retail_date_prev_year
       UNION ALL
       SELECT ${DATE_PREFIX}'2019-11-03'${DATE_SUFFIX}, '2019', '2019-Q4', '2019-M10', '2019-W40', ${DATE_PREFIX}'2019-02-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2019-11-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2019-11-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2019-11-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2019-10-06'${DATE_SUFFIX}, ${DATE_PREFIX}'2019-08-04'${DATE_SUFFIX}, ${DATE_PREFIX}'2018-11-04'${DATE_SUFFIX}
@@ -1120,7 +1132,7 @@ export const RetailCalendar = {
       SELECT ${DATE_PREFIX}'2021-01-29'${DATE_SUFFIX}, '2020', '2020-Q4', '2020-M12', '2020-W52', ${DATE_PREFIX}'2020-02-02'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-11-01'${DATE_SUFFIX}, ${DATE_PREFIX}'2021-01-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2021-01-24'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-12-25'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-10-30'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-01-31'${DATE_SUFFIX}
       UNION ALL
       SELECT ${DATE_PREFIX}'2021-01-30'${DATE_SUFFIX}, '2020', '2020-Q4', '2020-M12', '2020-W52', ${DATE_PREFIX}'2020-02-02'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-11-01'${DATE_SUFFIX}, ${DATE_PREFIX}'2021-01-03'${DATE_SUFFIX}, ${DATE_PREFIX}'2021-01-24'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-12-26'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-10-31'${DATE_SUFFIX}, ${DATE_PREFIX}'2020-02-01'${DATE_SUFFIX}
-    `;
+    `, SELECT_SUFFIX);
   },
   create: (cast: Cast, name: string, suf?: string) => create(name, RetailCalendar.select(cast), cast, suf),
 };

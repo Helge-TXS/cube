@@ -55,10 +55,12 @@ export function testQueries(type: string, { includeIncrementalSchemaSuite, exten
 
       console.debug(`[pg] new connection ${currentConnId}`);
 
+      // In local mode, Cube server (incl. PG SQL API) runs as a child process on the same host
+      const pgHost = env.isLocal ? '127.0.0.1' : (process.env.TESTCONTAINERS_HOST_OVERRIDE || '127.0.0.1');
       const conn = new PgClient({
         database: 'db',
         port: pgPort,
-        host: '127.0.0.1',
+        host: pgHost,
         user,
         password,
         ssl: false,
@@ -120,18 +122,22 @@ export function testQueries(type: string, { includeIncrementalSchemaSuite, exten
 
     beforeAll(async () => {
       env = await runEnvironment(type, suffix, { extendedEnv });
+      // hostOverride is for Docker containers (DB, CubeStore) accessed from outside
+      const hostOverride = process.env.TESTCONTAINERS_HOST_OVERRIDE || '127.0.0.1';
+      // In local mode, Cube server runs as a child process (same host), so always use 127.0.0.1
+      const cubeHost = env.isLocal ? '127.0.0.1' : hostOverride;
       process.env.CUBEJS_REFRESH_WORKER = 'true';
-      process.env.CUBEJS_CUBESTORE_HOST = '127.0.0.1';
+      process.env.CUBEJS_CUBESTORE_HOST = hostOverride;
       process.env.CUBEJS_CUBESTORE_PORT = `${env.store.port}`;
       process.env.CUBEJS_CUBESTORE_USER = 'root';
       process.env.CUBEJS_CUBESTORE_PASS = 'root';
       process.env.CUBEJS_CACHE_AND_QUEUE_DRIVER = 'cubestore'; // memory
       if (env.data) {
-        process.env.CUBEJS_DB_HOST = '127.0.0.1';
+        process.env.CUBEJS_DB_HOST = hostOverride;
         process.env.CUBEJS_DB_PORT = `${env.data.port}`;
       }
       client = cubejs(apiToken, {
-        apiUrl: `http://127.0.0.1:${env.cube.port}/cubejs-api/v1`,
+        apiUrl: `http://${cubeHost}:${env.cube.port}/cubejs-api/v1`,
       });
       driver = (await getDriver(type)).source;
       queries = getCreateQueries(type, suffix);

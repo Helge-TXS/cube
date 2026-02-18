@@ -47,54 +47,84 @@ export async function readData(
   });
 }
 
+async function postRequestWithRetry(
+  port: number,
+  path: string,
+  token: string,
+  data: unknown,
+  retries: number = 10,
+  delayMs: number = 3000,
+): Promise<http.IncomingMessage> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await postRequest(port, path, token, data);
+    } catch (e) {
+      if (i < retries - 1) {
+        console.log(`[buildPreaggs] Request failed (attempt ${i + 1}/${retries}), retrying in ${delayMs}ms: ${e}`);
+        await new Promise((r) => setTimeout(r, delayMs));
+      } else {
+        throw e;
+      }
+    }
+  }
+  throw new Error('Unreachable');
+}
+
 export async function buildPreaggs(
   port: number,
   token: string,
   selector: any,
 ) {
-  return new Promise((resolve, reject) => {
-    postRequest(
-      port,
-      '/cubejs-api/v1/pre-aggregations/jobs',
-      token,
-      { action: 'post', selector },
-    ).then((post) => {
-      readData(post).then((_jobs) => {
-        const jobs = <string[]>JSON.parse(_jobs.toString());
-        if (jobs.length === 0) {
-          resolve(true);
-        } else {
-          const interval = setInterval(async () => {
-            const inProcess = [];
-            const get = await postRequest(
-              port,
-              '/cubejs-api/v1/pre-aggregations/jobs',
-              token,
-              { action: 'get', resType: 'object', tokens: jobs },
-            );
-            const statuses = JSON.parse((await readData(get)).toString());
-            Object.keys(statuses).forEach((t: string) => {
-              const { status } = statuses[t];
-              if (status.indexOf('failure') >= 0) {
-                reject(`Cube pre-aggregations build failed: ${status}`);
-              }
-              if (status !== 'done' && status !== 'missing_partition') {
-                inProcess.push(t);
-              }
-            });
-            if (inProcess.length === 0) {
-              clearInterval(interval);
-              resolve(true);
-            }
-          }, 1000);
+  const post = await postRequestWithRetry(
+    port,
+    '/cubejs-api/v1/pre-aggregations/jobs',
+    token,
+    { action: 'post', selector },
+  );
+  const _jobs = await readData(post);
+  const jobs = <string[]>JSON.parse(_jobs.toString());
+  if (jobs.length === 0) {
+    return true;
+  }
 
-          setTimeout(() => {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(async () => {
+      try {
+        const inProcess: string[] = [];
+        const get = await postRequest(
+          port,
+          '/cubejs-api/v1/pre-aggregations/jobs',
+          token,
+          { action: 'get', resType: 'object', tokens: jobs },
+        );
+        const statuses = JSON.parse((await readData(get)).toString());
+        Object.keys(statuses).forEach((t: string) => {
+          const info = statuses[t];
+          const status = info && info.status;
+          if (!status) {
+            return;
+          }
+          if (status.indexOf('failure') >= 0) {
             clearInterval(interval);
-            reject('Cube pre-aggregations build failed: timeout.');
-          }, 120000);
+            reject(`Cube pre-aggregations build failed: ${status}`);
+          }
+          if (status !== 'done' && status !== 'missing_partition') {
+            inProcess.push(t);
+          }
+        });
+        if (inProcess.length === 0) {
+          clearInterval(interval);
+          resolve(true);
         }
-      });
-    });
+      } catch (e) {
+        console.log(`[buildPreaggs] Polling error: ${e}`);
+      }
+    }, 1000);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      reject('Cube pre-aggregations build failed: timeout.');
+    }, 120000);
   });
 }
 

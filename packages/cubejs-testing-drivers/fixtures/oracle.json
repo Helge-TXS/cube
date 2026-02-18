@@ -1,0 +1,297 @@
+{
+  "cube": {
+    "environment": {
+      "CUBEJS_API_SECRET": "mysupersecret",
+      "CUBEJS_CACHE_AND_QUEUE_DRIVER": "cubestore",
+      "CUBEJS_CUBESTORE_HOST": "store",
+      "CUBEJS_DB_TYPE": "oracle",
+      "CUBEJS_DB_HOST": "data",
+      "CUBEJS_DB_NAME": "FREEPDB1",
+      "CUBEJS_DB_USER": "system",
+      "CUBEJS_DB_PASS": "test",
+      "CUBEJS_DB_PORT": "1521",
+      "CUBEJS_PG_SQL_PORT": "5656",
+      "CUBEJS_SQL_USER": "admin",
+      "CUBEJS_SQL_PASSWORD": "admin_password",
+      "CUBESQL_SQL_PUSH_DOWN": "true",
+      "CUBEJS_TESSERACT_SQL_PLANNER": "${DRIVERS_TESTS_CUBEJS_TESSERACT_SQL_PLANNER}",
+      "CUBEJS_TRANSPILATION_NATIVE": "${DRIVERS_TESTS_CUBEJS_TRANSPILATION_NATIVE}"
+    },
+    "depends_on": ["data"],
+    "links": ["data"],
+    "ports": ["4000", "5656"]
+  },
+  "data": {
+    "image": "gvenzl/oracle-free:23-slim",
+    "environment": {
+      "ORACLE_PASSWORD": "test"
+    },
+    "ports": ["1521"]
+  },
+  "cast": {
+    "SELECT_PREFIX": "",
+    "SELECT_SUFFIX": " FROM DUAL",
+    "DATE_PREFIX": "TO_DATE(",
+    "DATE_SUFFIX": ", 'YYYY-MM-DD')",
+    "CREATE_TBL_PREFIX": "CREATE TABLE ",
+    "CREATE_TBL_SUFFIX": " AS ",
+    "CREATE_SUB_PREFIX": "",
+    "CREATE_SUB_SUFFIX": "",
+    "USE_SCHEMA": "",
+    "TRUE_LITERAL": "1",
+    "FALSE_LITERAL": "0"
+  },
+  "tables": {
+    "products": "products",
+    "customers": "customers",
+    "ecommerce": "ecommerce",
+    "bigecommerce": "bigecommerce",
+    "retailcalendar": "retailcalendar"
+  },
+  "preAggregations": {
+    "Products": [],
+    "Customers": [
+      {
+        "name": "RA",
+        "measures": ["CUBE.count", "CUBE.runningTotal"]
+      }
+    ],
+    "ECommerce": [
+      {
+        "name": "SA",
+        "dimensions": ["CUBE.productName"],
+        "measures": [
+          "CUBE.totalQuantity",
+          "CUBE.avgDiscount",
+          "CUBE.totalSales",
+          "CUBE.totalProfit"
+        ]
+      },
+      {
+        "name": "TA",
+        "time_dimension": "CUBE.orderDate",
+        "granularity": "month",
+        "partition_granularity": "month",
+        "dimensions": ["CUBE.productName"],
+        "measures": [
+          "CUBE.totalQuantity",
+          "CUBE.avgDiscount",
+          "CUBE.totalSales",
+          "CUBE.totalProfit"
+        ]
+      },
+      {
+        "name": "MultiTimeDimForCount",
+        "time_dimensions": [
+          {
+            "dimension": "CUBE.completedDate",
+            "granularity": "day"
+          },
+          {
+            "dimension": "CUBE.orderDate",
+            "granularity": "day"
+          }
+        ],
+        "partition_granularity": "month",
+        "dimensions": ["CUBE.productName"],
+        "measures": [
+          "CUBE.count"
+        ]
+      }
+    ],
+    "BigECommerce": [
+      {
+        "name": "TA",
+        "time_dimension": "CUBE.orderDate",
+        "granularity": "month",
+        "partition_granularity": "year",
+        "dimensions": ["CUBE.productName", "CUBE.id"],
+        "measures": [
+          "CUBE.totalQuantity",
+          "CUBE.avgDiscount",
+          "CUBE.totalSales",
+          "CUBE.totalProfit"
+        ]
+      },
+      {
+        "name": "MultiTimeDimForCount",
+        "time_dimensions": [
+          {
+            "dimension": "CUBE.completedDate",
+            "granularity": "day"
+          },
+          {
+            "dimension": "CUBE.orderDate",
+            "granularity": "day"
+          }
+        ],
+        "partition_granularity": "month",
+        "dimensions": [],
+        "measures": [
+          "CUBE.count"
+        ]
+      }
+    ]
+  },
+  "skip": [
+    "---------------------------------------",
+    "SKIPPED FOR ALL                        ",
+    "---------------------------------------",
+    "querying Products: dimensions -- doesn't work wo ordering",
+    "querying ECommerce: total quantity, avg discount, total sales, total profit by product + order + total -- rounding in athena",
+    "querying ECommerce: total quantity, avg discount, total sales, total profit by product + order + total -- noisy test",
+
+    "---------------------------------------",
+    "Oracle driver does not support streaming",
+    "---------------------------------------",
+    "must download query from the data source via stream",
+
+    "---------------------------------------",
+    "Oracle bind parameter bug (NJS-098):   ",
+    "castParameter uses named binds with    ",
+    "positional array params. Affects        ",
+    "internal pre-aggregations and filters. ",
+    "---------------------------------------",
+    "for the Customers.RollingInternal",
+    "for the ECommerce.SimpleAnalysisInternal",
+    "for the ECommerce.TimeAnalysisInternal",
+    "filtering Customers: contains + dimensions, first",
+    "filtering Customers: contains + dimensions, second",
+    "filtering Customers: contains + dimensions, third",
+    "filtering Products: contains with special chars + dimensions",
+    "filtering Customers: endsWith filter + dimensions, first",
+    "filtering Customers: endsWith filter + dimensions, second",
+    "filtering Customers: endsWith filter + dimensions, third",
+    "filtering Customers: notEndsWith filter + dimensions, first",
+    "filtering Customers: notEndsWith filter + dimensions, second",
+    "filtering Customers: notEndsWith filter + dimensions, third",
+    "filtering Customers: startsWith + dimensions, first",
+    "filtering Customers: startsWith + dimensions, second",
+    "filtering Customers: startsWith + dimensions, third",
+    "filtering Customers: notStartsWith + dimensions, first",
+    "filtering Customers: notStartsWith + dimensions, second",
+    "filtering Customers: notStartsWith + dimensions, third",
+    "filtering Products: contains + dimensions + order, first",
+    "filtering Products: contains + dimensions + order, second",
+    "filtering Products: contains + dimensions + order, third",
+    "filtering Products: startsWith filter + dimensions + order, first",
+    "filtering Products: startsWith filter + dimensions + order, second",
+    "filtering Products: startsWith filter + dimensions + order, third",
+    "filtering Products: endsWith filter + dimensions + order, first",
+    "filtering Products: endsWith filter + dimensions + order, second",
+    "filtering Products: endsWith filter + dimensions + order, third",
+    "filtering ECommerce: contains dimensions, first",
+    "filtering ECommerce: contains dimensions, second",
+    "filtering ECommerce: contains dimensions, third",
+    "filtering ECommerce: startsWith + dimensions, first",
+    "filtering ECommerce: startsWith + dimensions, second",
+    "filtering ECommerce: startsWith + dimensions, third",
+    "filtering ECommerce: endsWith + dimensions, first",
+    "filtering ECommerce: endsWith + dimensions, second",
+    "filtering ECommerce: endsWith + dimensions, third",
+
+    "---------------------------------------",
+    "Oracle does not implement dateBin()    ",
+    "---------------------------------------",
+    "querying custom granularities ECommerce: count by half_year + no dimension",
+    "querying custom granularities ECommerce: count by half_year_by_1st_april + no dimension",
+    "querying custom granularities ECommerce: count by three_months_by_march + no dimension",
+    "querying custom granularities ECommerce: count by half_year + dimension",
+    "querying custom granularities ECommerce: count by half_year_by_1st_april + dimension",
+    "querying custom granularities ECommerce: count by three_months_by_march + dimension",
+    "querying custom granularities ECommerce: count by two_mo_by_feb + no dimension + rollingCountByUnbounded",
+    "querying custom granularities ECommerce: count by two_mo_by_feb + no dimension + rollingCountByTrailing",
+    "querying custom granularities ECommerce: count by two_mo_by_feb + no dimension + rollingCountByLeading",
+    "querying custom granularities (with preaggregation) ECommerce: totalQuantity by half_year + no dimension",
+    "querying custom granularities (with preaggregation) ECommerce: totalQuantity by half_year + dimension",
+
+    "---------------------------------------",
+    "NJS-098: rolling window queries use    ",
+    "named binds with positional params     ",
+    "---------------------------------------",
+    "querying BigECommerce: time series in rolling window",
+    "querying BigECommerce: rolling window by 2 day",
+    "querying BigECommerce: rolling window by 2 week",
+    "querying BigECommerce: rolling window by 2 month",
+    "querying BigECommerce: rolling window YTD (month)",
+    "querying BigECommerce: rolling window YTD (month + week)",
+    "querying BigECommerce: rolling window YTD (month + week + no gran)",
+    "querying BigECommerce: rolling window YTD (month + week + day)",
+    "querying BigECommerce: rolling window YTD (month + week + day + no gran)",
+
+    "---------------------------------------",
+    "Oracle boolean: true/false vs 1/0     ",
+    "---------------------------------------",
+    "querying BigECommerce: filtering with possible casts",
+
+    "---------------------------------------",
+    "SQL API: CubeSQL missing interval      ",
+    "field in Oracle schema deserialization  ",
+    "---------------------------------------",
+    "SQL API: powerbi min max push down",
+    "SQL API: powerbi min max ungrouped flag",
+    "SQL API: ungrouped pre-agg",
+    "SQL API: post-aggregate percentage of total",
+    "SQL API: reuse params",
+    "SQL API: Simple Rollup",
+    "SQL API: Complex Rollup",
+    "SQL API: Rollup with aliases",
+    "SQL API: Rollup over exprs",
+    "SQL API: Nested Rollup",
+    "SQL API: Nested Rollup with aliases",
+    "SQL API: Nested Rollup over asterisk",
+    "SQL API: Extended nested Rollup over asterisk",
+    "SQL API: metabase count cast to float32 from push down",
+    "SQL API: NULLS FIRST/LAST SQL push down",
+    "SQL API: Timeshift measure from cube",
+    "SQL API: Rolling Window YTD (year + month + day + date_trunc equal)",
+    "SQL API: Rolling Window YTD (year + month + day + date_trunc IN)",
+    "SQL API: SQL push down push to cube quoted alias",
+    "SQL API: Date/time comparison with SQL push down",
+    "SQL API: Date/time comparison with date_trunc with SQL push down",
+
+    "---------------------------------------",
+    "Requires Tesseract.                    ",
+    "---------------------------------------",
+    "querying BigECommerce: rolling window by 2 day without date range",
+    "querying BigECommerce: rolling window by 2 month without date range",
+    "querying BigECommerce: rolling window YTD without date range",
+    "querying custom granularities ECommerce: count by two_mo_by_feb + no dimension + rollingCountByLeading without date range",
+    "querying BigECommerce with Retail Calendar: totalCountRetailYearAgo",
+    "querying BigECommerce with Retail Calendar: totalCountRetailMonthAgo",
+    "querying BigECommerce with Retail Calendar: totalCountRetailWeekAgo",
+    "Tesseract: querying BigECommerce with Retail Calendar: totalCountRetailMonthAgo",
+    "Tesseract: querying BigECommerce with Retail Calendar: totalCountRetailWeekAgo",
+    "Tesseract: SQL API: Timeshift measure from cube",
+    "querying BigECommerce: multi-stage group by time dimension",
+    "querying SwitchSourceTest: simple cross join",
+    "querying SwitchSourceTest: full cross join",
+    "querying SwitchSourceTest: filter by switch dimensions",
+    "querying BigECommerce: SeveralMultiStageMeasures"
+  ],
+  "tesseractSkip": [
+    "querying Products: dimensions -- doesn't work wo ordering",
+    "querying ECommerce: total quantity, avg discount, total sales, total profit by product + order + total -- rounding in athena",
+    "querying ECommerce: total quantity, avg discount, total sales, total profit by product + order + total -- noisy test",
+    "querying custom granularities (with preaggregation) ECommerce: totalQuantity by half_year + no dimension",
+    "querying custom granularities (with preaggregation) ECommerce: totalQuantity by half_year + dimension",
+    "querying BigECommerce with Retail Calendar: totalCountRetailMonthAgo",
+    "querying BigECommerce with Retail Calendar: totalCountRetailWeekAgo",
+    "SQL API: Timeshift measure from cube",
+
+    "SQL API: Simple Rollup",
+    "SQL API: Complex Rollup",
+    "SQL API: Rollup with aliases",
+    "SQL API: Rollup over exprs",
+    "SQL API: Nested Rollup",
+    "SQL API: Nested Rollup with aliases",
+    "SQL API: Nested Rollup over asterisk",
+    "SQL API: Extended nested Rollup over asterisk",
+    "SQL API: SQL push down push to cube quoted alias",
+
+    "---- Different results comparing to baseQuery version. Need to investigate ----",
+    "querying BigECommerce: rolling window YTD (month + week)",
+    "querying BigECommerce: rolling window YTD (month + week + no gran)",
+    "querying BigECommerce: rolling window YTD without granularity"
+  ]
+}

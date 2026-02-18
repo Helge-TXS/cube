@@ -1,6 +1,7 @@
 import { Readable } from 'stream';
 
 export type Environment = {
+  isLocal: boolean;
   cube: {
       port: number;
       pgPort?: number;

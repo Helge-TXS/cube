@@ -229,6 +229,61 @@ class OracleDriver extends BaseDriver {
     }
   }
 
+  /**
+   * Execute a query and return both rows and column type metadata.
+   * Unlike the base class implementation, this uses Oracle's metaData
+   * to determine column types, which works even with empty result sets.
+   */
+  async downloadQueryResults(query, values, options) {
+    const conn = await this.getConnectionFromPool();
+
+    try {
+      const res = await conn.execute(query, values || {});
+      const rows = res && res.rows || [];
+      const types = (res && res.metaData || []).map((col) => ({
+        name: col.name,
+        type: this.oracleDbTypeToGeneric(col.dbType),
+      }));
+      return { rows, types };
+    } finally {
+      try {
+        await conn.close();
+      } catch (e) {
+        throw e;
+      }
+    }
+  }
+
+  /**
+   * Map Oracle DB_TYPE constants to generic Cube types.
+   */
+  oracleDbTypeToGeneric(dbType) {
+    switch (dbType) {
+      case oracledb.DB_TYPE_NUMBER:
+      case oracledb.DB_TYPE_BINARY_FLOAT:
+      case oracledb.DB_TYPE_BINARY_DOUBLE:
+      case oracledb.DB_TYPE_BINARY_INTEGER:
+        return 'decimal';
+      case oracledb.DB_TYPE_DATE:
+        return 'timestamp';
+      case oracledb.DB_TYPE_TIMESTAMP:
+      case oracledb.DB_TYPE_TIMESTAMP_LTZ:
+      case oracledb.DB_TYPE_TIMESTAMP_TZ:
+        return 'timestamp';
+      case oracledb.DB_TYPE_CHAR:
+      case oracledb.DB_TYPE_VARCHAR:
+      case oracledb.DB_TYPE_NCHAR:
+      case oracledb.DB_TYPE_NVARCHAR:
+        return 'text';
+      case oracledb.DB_TYPE_CLOB:
+      case oracledb.DB_TYPE_NCLOB:
+      case oracledb.DB_TYPE_LONG:
+        return 'text';
+      default:
+        return 'text';
+    }
+  }
+
   release() {
     return this.pool && this.pool.close();
   }

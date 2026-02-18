@@ -39,7 +39,7 @@ export function testConnection(type: string): void {
     beforeAll(async () => {
       env = await runEnvironment(type, 'driver');
       if (env.data) {
-        process.env.CUBEJS_DB_HOST = '127.0.0.1';
+        process.env.CUBEJS_DB_HOST = process.env.TESTCONTAINERS_HOST_OVERRIDE || '127.0.0.1';
         process.env.CUBEJS_DB_PORT = `${env.data.port}`;
       }
       driver = (await getDriver(type)).source;
@@ -69,7 +69,7 @@ export function testConnection(type: string): void {
           return res;
         })
       );
-      expect(response.length).toBe(3);
+      expect(response.length).toBe(query.length);
 
       response[0].forEach((item: any) => {
         const i: any = {};
@@ -136,7 +136,7 @@ export function testConnection(type: string): void {
           };
         })
       );
-      expect(response.length).toBe(3);
+      expect(response.length).toBe(query.length);
       expect(response[0].data.length).toBe(28);
       expect(response[1].data.length).toBe(41);
       expect(response[2].data.length).toBe(44);
@@ -170,7 +170,7 @@ export function testConnection(type: string): void {
           return { types, data };
         })
       );
-      expect(response.length).toBe(3);
+      expect(response.length).toBe(query.length);
       expect(response[0].data.length).toBe(28);
       expect(response[1].data.length).toBe(41);
       expect(response[2].data.length).toBe(44);

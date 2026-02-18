@@ -372,8 +372,8 @@ export abstract class BaseDriver implements DriverInterface {
     const types = fields.map(field => ({
       name: field,
       type: Object.keys(DbTypeValueMatcher).find(
-        type => !rows.filter(row => field in row).find(row => !DbTypeValueMatcher[type](row[field])) &&
-          rows.find(row => field in row)
+        type => !rows.filter(row => field in row && row[field] != null).find(row => !DbTypeValueMatcher[type](row[field])) &&
+          rows.find(row => field in row && row[field] != null)
       ) || 'text'
     }));
 

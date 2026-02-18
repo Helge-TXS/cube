@@ -1,6 +1,6 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, spawn, execSync } from 'child_process';
 import { config } from 'dotenv';
 import yargs from 'yargs/yargs';
 import { DockerComposeEnvironment, Wait } from 'testcontainers';
@@ -29,6 +29,10 @@ class CubeCliEnvironment implements CubeEnvironment {
   }
 
   public async up(): Promise<void> {
+    // Kill any leftover Cube server from previous test runs
+    try {
+      execSync('kill $(lsof -ti:4000) 2>/dev/null || true', { stdio: 'ignore' });
+    } catch (e) { /* ignore */ }
     try {
       this.cli = spawn(
         path.resolve(process.cwd(), '../cubejs-server/bin/server'),
@@ -75,6 +79,19 @@ class CubeCliEnvironment implements CubeEnvironment {
   public async down() {
     if (this.cli) {
       const { cli } = this;
+      // Always try to kill the entire process group (detached: true creates its own group)
+      // This ensures both the shell wrapper AND the node child process are killed
+      try {
+        if (cli.pid) {
+          process.kill(-cli.pid, 'SIGKILL');
+        }
+      } catch (e) {
+        // Process group may already be gone
+      }
+      if (cli.exitCode !== null || cli.killed) {
+        process.stdout.write('Cube already exited\n');
+        return;
+      }
       await new Promise((resolve) => {
         cli.once('disconnect', () => resolve(null));
         cli.once('exit', () => resolve(null));
@@ -151,6 +168,10 @@ export async function runEnvironment(
   if (type === 'clickhouse') {
     compose.withWaitStrategy('data', Wait.forHealthCheck());
   }
+  if (type === 'oracle') {
+    compose.withWaitStrategy('data', Wait.forLogMessage('DATABASE IS READY TO USE!'));
+    compose.withStartupTimeout((isCI() ? 120 : 90) * 1000);
+  }
 
   const environment = await compose.up();
 
@@ -163,14 +184,15 @@ export async function runEnvironment(
   const mappedDataPort = fixture.data ? environment.getContainer('data').getMappedPort(
     parseInt(fixture.data.ports[0], 10),
   ) : null;
+  const hostOverride = process.env.TESTCONTAINERS_HOST_OVERRIDE || '127.0.0.1';
   if (cliEnv) {
     cliEnv.withEnvironment({
-      CUBEJS_CUBESTORE_HOST: '127.0.0.1',
+      CUBEJS_CUBESTORE_HOST: hostOverride,
       CUBEJS_CUBESTORE_PORT: process.env.CUBEJS_CUBESTORE_PORT ? process.env.CUBEJS_CUBESTORE_PORT : `${store.port}`,
     });
     if (mappedDataPort) {
       cliEnv.withEnvironment({
-        CUBEJS_DB_HOST: '127.0.0.1',
+        CUBEJS_DB_HOST: hostOverride,
         CUBEJS_DB_PORT: `${mappedDataPort}`,
       });
       if (process.env.CUBEJS_PRE_AGGREGATIONS_DB_HOST) {
@@ -202,25 +224,30 @@ export async function runEnvironment(
       logs: await environment.getContainer('data').logs(),
     };
     return {
+      isLocal,
       cube,
       store,
       data,
       stop: async () => {
-        await environment.down({ timeout: 30 * 1000 });
+        // Kill Cube server FIRST (before Docker containers) to avoid
+        // the server crashing due to lost CubeStore connection, which
+        // leaves orphan processes
         if (cliEnv) {
           await cliEnv.down();
         }
+        await environment.down({ timeout: 30 * 1000 });
       },
     };
   }
   return {
+    isLocal,
     cube,
     store,
     stop: async () => {
-      await environment.down({ timeout: 30 * 1000 });
       if (cliEnv) {
         await cliEnv.down();
       }
+      await environment.down({ timeout: 30 * 1000 });
     },
   };
 }
