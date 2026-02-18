@@ -590,14 +590,14 @@ export async function startBirdBoxFromCli(
   try {
     cli = spawn(
       options.useCubejsServerBinary
-        ? path.resolve(process.cwd(), '../cubejs-server/bin/server')
+        ? process.execPath
         : 'npm',
       options.useCubejsServerBinary
-        ? []
+        ? [path.resolve(process.cwd(), '../cubejs-server/bin/server')]
         : ['run', 'dev'],
       {
         cwd: testDir,
-        shell: true,
+        shell: !options.useCubejsServerBinary,
         detached: true,
         stdio: [
           options.log,
@@ -648,11 +648,19 @@ export async function startBirdBoxFromCli(
         // Here, normally, we kill the process group by passing -cli.pid (a negative value), but
         // with killCube we just kill the main process, and then can't kill any process group --
         // maybe that test has poor cleanup actions.
+        // Note: negative pid (process group kill) is not supported on Windows.
         try {
           process.kill(-cli.pid, 'SIGINT');
-        } catch (error) {
-          if (!sentKillSignal) {
+        } catch (error: any) {
+          // ESRCH = process already exited, EINVAL = unsupported on Windows
+          if (error?.code !== 'ESRCH' && error?.code !== 'EINVAL' && !sentKillSignal) {
             throw error;
+          }
+          // Fallback: try killing the process directly
+          try {
+            process.kill(cli.pid, 'SIGINT');
+          } catch (_e) {
+            // Process already exited, ignore
           }
         }
       }

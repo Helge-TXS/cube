@@ -4,7 +4,7 @@ import { DbRunnerAbstract, DBRunnerContainerOptions } from './db-runner.abstract
 
 export class OracleDBRunner extends DbRunnerAbstract {
   public static startContainer(options: DBRunnerContainerOptions) {
-    const version = process.env.TEST_ORACLE_VERSION || options.version || '23.4.0';
+    const version = process.env.TEST_ORACLE_VERSION || options.version || '23-slim';
 
     const container = new GenericContainer(`gvenzl/oracle-free:${version}`)
       .withEnvironment({
