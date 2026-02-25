@@ -1,4 +1,4 @@
-import { parseSqlInterval } from '@cubejs-backend/shared';
+import { QueryAlias, parseSqlInterval } from '@cubejs-backend/shared';
 import { BaseQuery } from './BaseQuery';
 import { BaseFilter } from './BaseFilter';
 import { UserError } from '../compiler/UserError';
@@ -75,6 +75,21 @@ export class OracleQuery extends BaseQuery {
     }
 
     return ` GROUP BY ${dimensions.map(item => item.dimensionSql()).join(', ')}`;
+  }
+
+  /**
+   * Overrides `BaseQuery#aggregateSubQueryGroupByClause` method and returns
+   * `GROUP BY` clause for the "aggregating on top of sub-queries" use cases.
+   * Oracle doesn't support GROUP BY with ordinal indices, and the default
+   * groupByClause() re-evaluates dimensionSql() which references table aliases
+   * from the inner "keys" subquery scope. This override correctly references
+   * the projected column aliases from the "keys" subquery.
+   * @returns {string}
+   * @override
+   */
+  public aggregateSubQueryGroupByClause() {
+    const dimensionColumns = this.dimensionColumns(this.escapeColumnName(QueryAlias.AGG_SUB_QUERY_KEYS));
+    return dimensionColumns.length ? ` GROUP BY ${dimensionColumns.join(', ')}` : '';
   }
 
   public convertTz(field) {
