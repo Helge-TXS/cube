@@ -36,7 +36,7 @@ export class OracleQuery extends BaseQuery {
    * TODO replace with limitOffsetClause override
    */
   public groupByDimensionLimit() {
-    const limitClause = this.rowLimit === null ? '' : ` FETCH NEXT ${this.rowLimit && parseInt(this.rowLimit, 10) || 10000} ROWS ONLY`;
+    const limitClause = this.rowLimit == null ? '' : ` FETCH NEXT ${parseInt(this.rowLimit, 10)} ROWS ONLY`;
     const offsetClause = this.offset ? ` OFFSET ${parseInt(this.offset, 10)} ROWS` : '';
     return `${offsetClause}${limitClause}`;
   }

@@ -163,7 +163,7 @@ export class MssqlQuery extends BaseQuery {
     if (this.offset) {
       return '';
     }
-    return this.rowLimit === null ? '' : ` TOP ${this.rowLimit && parseInt(this.rowLimit, 10) || 10000}`;
+    return this.rowLimit == null ? '' : ` TOP ${parseInt(this.rowLimit, 10)}`;
   }
 
   /**
