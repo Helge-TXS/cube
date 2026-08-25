@@ -63,7 +63,10 @@ const reduceCb = (result, i) => {
   return sortByKeys(result);
 };
 
-const timestampTypeParser = (val) => moment(val).format(moment.HTML5_FMT.DATETIME_LOCAL_MS);
+// oracledb invokes the converter for NULL values as well. Without this guard moment(null)
+// yields an invalid moment that formats to the literal string "Invalid date", and
+// moment(undefined) silently resolves to the current time.
+const timestampTypeParser = (val) => (val == null ? null : moment(val).format(moment.HTML5_FMT.DATETIME_LOCAL_MS));
 
 /**
  * Initialize Oracle thick mode if enabled.
