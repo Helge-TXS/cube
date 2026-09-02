@@ -15,6 +15,7 @@
   "dependencies": {
     "@cubejs-backend/base-driver": "1.8.3",
     "@cubejs-backend/shared": "1.8.3",
+    "moment": "^2.30.1",
     "ramda": "^0.27.2"
   },
   "devDependencies": {
