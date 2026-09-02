@@ -99,6 +99,10 @@ export class OracleQuery extends BaseQuery {
     if (!granularity) {
       return dimension;
     }
+    // TRUNC has no second-level format model (ORA-01899), so cast instead.
+    if (granularity === 'second') {
+      return `CAST(${dimension} AS DATE)`;
+    }
 
     return `TRUNC(${dimension}, '${GRANULARITY_VALUE[granularity]}')`;
   }
