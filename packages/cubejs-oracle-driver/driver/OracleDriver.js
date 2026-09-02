@@ -12,6 +12,7 @@ const {
 const { BaseDriver, TableColumn, createPoolName } = require('@cubejs-backend/base-driver');
 const oracledb = require('oracledb');
 const { reduce } = require('ramda');
+const moment = require('moment');
 
 // Maps Oracle `metaData.dbTypeName` strings to Cube generic types. NUMBER and the
 // TIMESTAMP* family are handled separately (scale-based / prefix match) below.
@@ -60,6 +61,8 @@ const reduceCb = (result, i) => {
   return sortByKeys(result);
 };
 
+const timestampTypeParser = (val) => moment(val).format(moment.HTML5_FMT.DATETIME_LOCAL_MS);
+
 class OracleDriver extends BaseDriver {
   static getDefaultConcurrency() {
     return 2;
@@ -80,6 +83,18 @@ class OracleDriver extends BaseDriver {
     this.db.partRows = 100000;
     this.db.maxRows = 100000;
     this.db.prefetchRows = 500;
+
+    // oracledb hands DATE/TIMESTAMP columns back as JS Date objects in the driver's
+    // local timezone; Cube expects a naive ISO-like string.
+    this.db.fetchTypeHandler = function (metadata) {
+      if (metadata.dbType === oracledb.DB_TYPE_DATE ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_LTZ ||
+        metadata.dbType === oracledb.DB_TYPE_TIMESTAMP_TZ) {
+        return { converter: timestampTypeParser };
+      }
+      return undefined;
+    };
 
     const { maxPoolSize, pool, ...connectionConfig } = config;
 
