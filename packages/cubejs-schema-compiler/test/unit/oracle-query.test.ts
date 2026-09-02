@@ -255,7 +255,7 @@ describe('OracleQuery', () => {
     expect(query.groupByDimensionLimit()).toEqual(' FETCH NEXT 0 ROWS ONLY');
   });
 
-  it('keeps the documented null policy for rowLimit', async () => {
+  it('treats an absent or null rowLimit as no limit', async () => {
     await compiler.compile();
 
     const newQuery = (rowLimit?: number | null) => new OracleQuery(
@@ -263,8 +263,8 @@ describe('OracleQuery', () => {
       { measures: ['visitors.count'], timezone: 'UTC', ...(rowLimit === undefined ? {} : { rowLimit }) }
     );
 
-    // An absent rowLimit keeps the historical default, an explicit null means no limit
-    expect(newQuery().groupByDimensionLimit()).toEqual(' FETCH NEXT 10000 ROWS ONLY');
+    // Sub-queries from newSubQuery() carry no rowLimit, so an absent one must not cap at 10000
+    expect(newQuery().groupByDimensionLimit()).toEqual('');
     expect(newQuery(null).groupByDimensionLimit()).toEqual('');
     expect(newQuery(0).groupByDimensionLimit()).toEqual(' FETCH NEXT 0 ROWS ONLY');
   });
