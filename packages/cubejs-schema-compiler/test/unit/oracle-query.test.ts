@@ -1,4 +1,5 @@
 /* eslint-disable no-restricted-syntax */
+import { CubeStoreQuery } from '../../src/adapter/CubeStoreQuery';
 import { OracleQuery } from '../../src/adapter/OracleQuery';
 import { prepareJsCompiler } from './PrepareCompiler';
 
@@ -267,6 +268,35 @@ describe('OracleQuery', () => {
     expect(newQuery().groupByDimensionLimit()).toEqual('');
     expect(newQuery(null).groupByDimensionLimit()).toEqual('');
     expect(newQuery(0).groupByDimensionLimit()).toEqual(' FETCH NEXT 0 ROWS ONLY');
+  });
+
+  it('selects the default refresh key FROM DUAL', async () => {
+    await compiler.compile();
+
+    const query = new OracleQuery({ joinGraph, cubeEvaluator, compiler }, {
+      measures: ['visitors.count'],
+      timezone: 'UTC'
+    });
+
+    // Oracle before 23ai rejects a SELECT without FROM (ORA-00923), which kept the cache key constant
+    const [[sql, , { external }]] = query.cacheKeyQueries();
+    expect(external).toBe(false);
+    expect(sql).toMatch(/ as refresh_key FROM DUAL$/);
+  });
+
+  it('does not select an external refresh key FROM DUAL', async () => {
+    await compiler.compile();
+
+    const query = new OracleQuery({ joinGraph, cubeEvaluator, compiler }, {
+      measures: ['visitors.count'],
+      timezone: 'UTC',
+      externalQueryClass: CubeStoreQuery
+    });
+
+    // With Cube Store the refresh key runs there, and Cube Store has no DUAL
+    const [[sql, , { external }]] = query.cacheKeyQueries();
+    expect(external).toBe(true);
+    expect(sql).not.toMatch(/DUAL/);
   });
 
   it('uses FETCH NEXT syntax with subqueries and rolling windows', async () => {
