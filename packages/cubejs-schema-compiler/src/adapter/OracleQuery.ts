@@ -325,6 +325,16 @@ export class OracleQuery extends BaseQuery {
     return `((cast (systimestamp at time zone 'UTC' as date) - date '1970-01-01') * 86400)`;
   }
 
+  /**
+   * Oracle before 23ai rejects a SELECT without FROM (ORA-00923). With an external query class
+   * everyRefreshKeySql() builds the key for the external database (e.g. Cube Store), which runs
+   * it and has no DUAL.
+   */
+  public refreshKeySelect(sql: string): string {
+    const select = super.refreshKeySelect(sql);
+    return this.externalQueryClass ? select : `${select} FROM DUAL`;
+  }
+
   public preAggregationTableName(cube: string, preAggregationName: string, skipSchema: boolean) {
     const name = super.preAggregationTableName(cube, preAggregationName, skipSchema);
     if (name.length > 128) {
