@@ -345,7 +345,44 @@ class OracleDriver extends BaseDriver {
     });
   }
 
-  async downloadQueryResults(query, values, _options) {
+  async stream(query, values, { highWaterMark }) {
+    const conn = await this.pool.acquire();
+
+    try {
+      const { sql, binds } = OracleDriver.normalizeParams(query, values);
+      const rowStream = conn.queryStream(sql, binds, { fetchArraySize: highWaterMark || undefined });
+      const metaData = await new Promise((resolve, reject) => {
+        rowStream.once('metadata', resolve);
+        rowStream.once('error', reject);
+      });
+
+      return {
+        rowStream,
+        types: OracleDriver.metaDataToColumnTypes(metaData),
+        release: async () => {
+          // Closing the stream closes its result set, which must happen before the
+          // connection goes back to the pool
+          if (!rowStream.closed) {
+            await new Promise((resolve) => {
+              rowStream.once('close', resolve);
+              rowStream.destroy();
+            });
+          }
+          await this.pool.release(conn);
+        },
+      };
+    } catch (e) {
+      await this.pool.release(conn);
+
+      throw e;
+    }
+  }
+
+  async downloadQueryResults(query, values, options) {
+    if (options?.streamImport) {
+      return this.stream(query, values, options);
+    }
+
     return this.withConnection(async (conn) => {
       const { sql, binds } = OracleDriver.normalizeParams(query, values);
       const res = await conn.execute(sql, binds);
