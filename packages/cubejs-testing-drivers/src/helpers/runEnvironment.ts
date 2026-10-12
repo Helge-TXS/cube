@@ -87,6 +87,15 @@ class CubeCliEnvironment implements CubeEnvironment {
   }
 }
 
+/**
+ * Host the test process reaches the mapped container ports on. Set
+ * TESTCONTAINERS_HOST_OVERRIDE when the tests run inside a container
+ * themselves, e.g. to host.docker.internal on Docker Desktop.
+ */
+export function containerHost(): string {
+  return process.env.TESTCONTAINERS_HOST_OVERRIDE || '127.0.0.1';
+}
+
 export async function runEnvironment(
   type: string,
   suf?: string,
@@ -164,10 +173,12 @@ export async function runEnvironment(
   }
   // Oracle takes noticeably longer to become ready than the global startup
   // timeout allows, and it only registers the FREEPDB1 service once fully up,
-  // so wait on the container HEALTHCHECK (defined in the oracle fixture) with
-  // an extended timeout before connecting.
+  // so wait on the container HEALTHCHECK (defined in the oracle fixture) before
+  // connecting. As for Trino below, the global timeout has to be raised because
+  // the compose environment overwrites the strategy's own one.
   if (type === 'oracle') {
-    compose.withWaitStrategy('data', Wait.forHealthCheck().withStartupTimeout(240 * 1000));
+    compose.withStartupTimeout(240 * 1000);
+    compose.withWaitStrategy('data', Wait.forHealthCheck());
   }
   // Pinot is a 4-container cluster (zookeeper/controller/broker/server). Wait on the
   // server HEALTHCHECK (last in the dependency chain) before seeding/connecting.
@@ -223,17 +234,17 @@ export async function runEnvironment(
   }
   if (cliEnv) {
     cliEnv.withEnvironment({
-      CUBEJS_CUBESTORE_HOST: '127.0.0.1',
+      CUBEJS_CUBESTORE_HOST: containerHost(),
       CUBEJS_CUBESTORE_PORT: process.env.CUBEJS_CUBESTORE_PORT ? process.env.CUBEJS_CUBESTORE_PORT : `${store.port}`,
     });
     if (mappedDataPort) {
       cliEnv.withEnvironment({
-        CUBEJS_DB_HOST: '127.0.0.1',
+        CUBEJS_DB_HOST: containerHost(),
         CUBEJS_DB_PORT: `${mappedDataPort}`,
       });
       if (process.env.CUBEJS_PRE_AGGREGATIONS_DB_HOST) {
         cliEnv.withEnvironment({
-          CUBEJS_PRE_AGGREGATIONS_DB_HOST: '127.0.0.1',
+          CUBEJS_PRE_AGGREGATIONS_DB_HOST: containerHost(),
           CUBEJS_PRE_AGGREGATIONS_DB_PORT: `${mappedDataPort}`,
         });
       }
