@@ -12,6 +12,9 @@
     "node": ">=20.0.0"
   },
   "main": "driver/OracleDriver.js",
+  "scripts": {
+    "integration": "jest --verbose test"
+  },
   "dependencies": {
     "@cubejs-backend/base-driver": "1.8.31",
     "@cubejs-backend/shared": "1.8.31",
