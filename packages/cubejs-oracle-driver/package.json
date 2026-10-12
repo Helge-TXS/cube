@@ -12,6 +12,9 @@
     "node": ">=20.0.0"
   },
   "main": "driver/OracleDriver.js",
+  "scripts": {
+    "integration": "jest --verbose test"
+  },
   "dependencies": {
     "@cubejs-backend/base-driver": "1.8.3",
     "@cubejs-backend/shared": "1.8.3",
@@ -19,6 +22,7 @@
     "ramda": "^0.27.2"
   },
   "devDependencies": {
+    "@cubejs-backend/testing-shared": "1.8.3",
     "@types/oracledb": "^6.2.3"
   },
   "optionalDependencies": {
