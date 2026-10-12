@@ -12,6 +12,7 @@ import {
   getRefreshQueries,
   getDriver,
   runEnvironment,
+  containerHost,
 } from '../helpers';
 
 const anyOrNull: any = {
@@ -51,7 +52,7 @@ export function testConnection(type: string): void {
     beforeAll(async () => {
       env = await runEnvironment(type, suffix);
       if (env.data) {
-        process.env.CUBEJS_DB_HOST = '127.0.0.1';
+        process.env.CUBEJS_DB_HOST = containerHost();
         process.env.CUBEJS_DB_PORT = `${env.data.port}`;
       }
       driver = (await getDriver(type)).source;
