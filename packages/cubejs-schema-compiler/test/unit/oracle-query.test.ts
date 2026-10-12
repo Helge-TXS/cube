@@ -268,30 +268,30 @@ describe('OracleQuery', () => {
   });
 
   it('selects the default refresh key FROM DUAL', async () => {
-    await compiler.compile();
+    await compilers.compile();
 
-    const query = new OracleQuery({ joinGraph, cubeEvaluator, compiler }, {
+    const query = compilers.createQuery(OracleQuery, {
       measures: ['visitors.count'],
       timezone: 'UTC'
     });
 
     // Oracle before 23ai rejects a SELECT without FROM (ORA-00923), which kept the cache key constant
-    const [[sql, , { external }]] = query.cacheKeyQueries();
+    const [[sql, , { external }]] = query.cacheKeyQueries() as Array<[string, unknown[], { external: boolean }]>;
     expect(external).toBe(false);
     expect(sql).toMatch(/ as refresh_key FROM DUAL$/);
   });
 
   it('does not select an external refresh key FROM DUAL', async () => {
-    await compiler.compile();
+    await compilers.compile();
 
-    const query = new OracleQuery({ joinGraph, cubeEvaluator, compiler }, {
+    const query = compilers.createQuery(OracleQuery, {
       measures: ['visitors.count'],
       timezone: 'UTC',
       externalQueryClass: CubeStoreQuery
     });
 
     // With Cube Store the refresh key runs there, and Cube Store has no DUAL
-    const [[sql, , { external }]] = query.cacheKeyQueries();
+    const [[sql, , { external }]] = query.cacheKeyQueries() as Array<[string, unknown[], { external: boolean }]>;
     expect(external).toBe(true);
     expect(sql).not.toMatch(/DUAL/);
   });
