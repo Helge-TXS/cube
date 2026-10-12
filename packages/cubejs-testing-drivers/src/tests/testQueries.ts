@@ -12,6 +12,7 @@ import {
   getRefreshQueries,
   getDriver,
   runEnvironment,
+  containerHost,
   buildPreaggs,
 } from '../helpers';
 import { incrementalSchemaLoadingSuite } from './testIncrementalSchemaLoading';
@@ -124,13 +125,13 @@ export function testQueries(type: string, { includeIncrementalSchemaSuite, exten
     beforeAll(async () => {
       env = await runEnvironment(type, suffix, { extendedEnv });
       process.env.CUBEJS_REFRESH_WORKER = 'true';
-      process.env.CUBEJS_CUBESTORE_HOST = '127.0.0.1';
+      process.env.CUBEJS_CUBESTORE_HOST = containerHost();
       process.env.CUBEJS_CUBESTORE_PORT = `${env.store.port}`;
       process.env.CUBEJS_CUBESTORE_USER = 'root';
       process.env.CUBEJS_CUBESTORE_PASS = 'root';
       process.env.CUBEJS_CACHE_AND_QUEUE_DRIVER = 'cubestore'; // memory
       if (env.data) {
-        process.env.CUBEJS_DB_HOST = type === 'pinot' ? 'http://127.0.0.1' : '127.0.0.1';
+        process.env.CUBEJS_DB_HOST = type === 'pinot' ? 'http://127.0.0.1' : containerHost();
         process.env.CUBEJS_DB_PORT = `${env.data.port}`;
       }
       client = cubejs(apiToken, {

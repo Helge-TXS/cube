@@ -11,7 +11,7 @@ import { getSchemaPath } from './getSchemaPath';
 import { getCore } from './getCore';
 import { getDriver } from './getDriver';
 import { patchDriver } from './patchDriver';
-import { runEnvironment } from './runEnvironment';
+import { containerHost, runEnvironment } from './runEnvironment';
 import { seedPinot } from './seedPinot';
 
 export {
@@ -29,6 +29,7 @@ export {
   getCore,
   getDriver,
   patchDriver,
+  containerHost,
   runEnvironment,
   seedPinot,
 };
