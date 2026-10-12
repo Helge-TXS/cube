@@ -161,8 +161,6 @@ class OracleDriver extends BaseDriver {
 
     this.db = oracledb;
     this.db.outFormat = this.db.OBJECT;
-    this.db.partRows = 100000;
-    this.db.maxRows = 100000;
     this.db.prefetchRows = 500;
 
     // oracledb hands DATE/TIMESTAMP columns back as JS Date objects in the driver's
